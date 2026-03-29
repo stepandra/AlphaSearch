@@ -1,285 +1,223 @@
-# Build Corpus QA / Canonicalization / Filtering
+# Build Evidence Store / Corpus Registry
 
 ## Objective
-Implement the corpus-quality layer for the research platform.
+Implement the persistence and registry layer for research artifacts and corpus outputs.
 
 This block must:
-- accept raw retrieved source material
-- canonicalize records
-- detect and split malformed or conflated records
-- filter low-quality or invalid records
-- classify records into usable buckets
-- preserve auditability for every acceptance, rejection, quarantine, and merge decision
+- persist the outputs of previous blocks
+- version and register corpus snapshots
+- preserve lineage from theme and branch generation through retrieval and corpus QA
+- expose stable registry/query interfaces for downstream synthesis and hypothesis-building
 
-This block is only about corpus quality control and corpus shaping.
-Do not implement literature synthesis, hypothesis extraction, knowledge graph logic, branch scoring, or backtest logic.
+This block is only about persistence, registry structure, and reproducible artifact lookup.
+Do not implement synthesis, hypothesis extraction, knowledge graph reasoning, branch scoring, or backtest logic.
 
 ## Context
 Previous blocks already provide:
 - normalized themes
 - branches
 - query families
-- retrieval runs
-- normalized search hits
-- fetched page content
-- provider provenance
+- retrieval runs and normalized hits
+- fetched documents
+- canonical corpus records
+- duplicate groups
+- QA decisions
+- accepted_core / accepted_analog / background / quarantine / discard outputs
 
-The research system now needs a strict corpus gate between:
-raw retrieval output
-and
-evidence synthesis.
+We now need a durable registry layer so these results become reusable, reproducible research artifacts.
 
-This block must prevent bad corpora from poisoning later steps.
-
-The quality problems we explicitly expect include:
-- URL-only pseudo-citations
-- placeholder or generic titles
-- duplicate records across providers
-- near-duplicate records across source variants
-- conflated multi-paper records
-- missing methodology / missing venue / missing limitations
-- thin or irrelevant records
-- weak analogs mixed with core evidence
-- papers where formulas are referenced but not extracted cleanly
-
-This layer must make these problems explicit and machine-usable.
+This layer must support:
+- re-running synthesis on a specific corpus snapshot
+- comparing corpus versions across runs
+- tracing which queries and retrieval runs produced which accepted evidence
+- preserving auditability and provenance
+- avoiding recomputation of already validated intermediate artifacts
 
 ## Requirements
 
-### Part A — Canonical Record Model
-1. Define explicit data structures for:
-   - raw corpus record
-   - canonical corpus record
-   - duplicate group
-   - quarantine record
-   - acceptance decision
-   - rejection reason
-   - record classification
-   - formula completeness status
-   - source provenance summary
+### Part A — Persistence Model
+1. Implement persistence models and migrations for the core research artifacts needed at this stage.
 
-2. Canonical corpus records must support fields such as:
-   - canonical title
-   - canonical citation
-   - year
-   - authors if available
-   - source type
-   - source identifiers where available (DOI / arXiv / SSRN / NBER / OSF / URL)
-   - abstract or content excerpt if available
-   - methodology summary if available
-   - findings summary if available
-   - limitations summary if available
-   - direct product implication if available
-   - market type or analog type if available
-   - relevance score fields
-   - evidence score fields
-   - formula completeness status
-   - provenance trace
+At minimum, support persistence for:
+- research themes
+- normalized themes
+- branches
+- query families / generated queries
+- retrieval runs
+- normalized retrieval hits
+- fetched documents
+- canonical corpus records
+- duplicate groups
+- QA decisions
+- corpus snapshots or evidence bundles
 
-3. The canonical model must distinguish:
-   - original raw retrieved data
-   - normalized extracted fields
-   - QA decisions made by this block
+2. Define a stable concept of a versioned corpus artifact, such as:
+- `corpus_snapshot`
+or
+- `evidence_bundle`
 
-### Part B — Canonicalization
-4. Implement canonicalization logic for:
-   - titles
-   - citations
-   - URLs
-   - identifiers
-   - author strings where practical
-   - year fields
-   - source labels
+This artifact must be able to represent:
+- accepted_core set
+- accepted_analog set
+- background set
+- quarantine set
+- discard summary
+- QA summary metadata
+- source lineage
 
-5. Implement exact and near-duplicate detection using explicit, inspectable rules.
-At minimum support:
-   - exact identifier match
-   - exact normalized title match
-   - exact canonical URL match
-   - strong near-duplicate title match where practical
+3. The persistence model must preserve lineage between stages.
+At minimum, the registry must be able to answer:
+- which theme/run produced this branch?
+- which branch produced this query?
+- which query produced this retrieval run?
+- which retrieval outputs fed this canonical corpus record?
+- which QA decision placed this record into accepted_core / analog / quarantine / discard?
+- which corpus snapshot contains this record?
 
-6. Create duplicate groups and select or derive a canonical representative record.
+### Part B — Repository / Registry API
+4. Implement explicit registry modules or repository-facing APIs for:
+- storing research themes and normalized themes
+- storing branch/query generation outputs
+- storing retrieval outputs
+- storing canonical corpus outputs
+- creating a corpus snapshot / evidence bundle
+- loading a corpus snapshot for downstream use
+- listing and inspecting prior snapshots
 
-7. Preserve merge provenance:
-   - which raw records were grouped
-   - why they were grouped
-   - what canonical record was selected or built
+5. Keep registry interfaces explicit and boring.
+Do not build a generic repository abstraction layer.
 
-### Part C — Conflated and Malformed Records
-8. Detect likely conflated records where a single retrieved record appears to contain multiple papers or mixed citations.
+6. Support idempotent or safe insertion patterns where practical, especially for:
+- retrieval runs
+- fetched documents by exact URL or content fingerprint where appropriate
+- canonical corpus records by stable identifiers where appropriate
 
-9. For conflated records:
-   - either split them into multiple candidate records if this can be done safely and explicitly
-   - or quarantine them with a clear reason if safe splitting is not possible
+### Part C — Versioning and Auditability
+7. Corpus snapshots must be immutable once finalized, or treated as append-only finalized artifacts.
 
-10. Detect malformed records such as:
-   - URL-only pseudo-citation
-   - year = 0 or missing year
-   - placeholder title
-   - clearly incomplete metadata
-   - missing critical evidence fields beyond allowed thresholds
+8. Preserve enough metadata to compare snapshots across runs, including:
+- creation time
+- upstream theme / branch / run references
+- counts by category
+- QA summary
+- duplicate summary
+- quarantine summary
 
-### Part D — Filtering and Classification
-11. Classify each canonical or quarantined record into one of:
-   - accepted_core
-   - accepted_analog
-   - background
-   - quarantine
-   - discard
+9. Preserve machine-readable auditability for:
+- why a record is present in a snapshot
+- what upstream run produced it
+- what QA decision classified it
+- whether it came through duplicate merging
 
-12. Implement explicit rule-based scoring or classification fields for at least:
-   - relevance to the research branch or theme
-   - evidence strength
-   - transferability
-   - citation quality / canonicality
-   - formula actionability
-   - external-validity risk or venue-specificity flag
+### Part D — Query Surfaces
+10. Add explicit read/query surfaces for downstream blocks.
+At minimum support loading:
+- latest corpus snapshot for a branch or theme
+- corpus snapshot by ID
+- accepted_core records for a snapshot
+- accepted_analog records for a snapshot
+- quarantine records and reasons for a snapshot
+- duplicate groups for a snapshot
+- provenance summary for a canonical record
 
-13. Implement hard-fail rules for quarantine or discard.
-Examples:
-   - URL-only citation with no other usable metadata
-   - year missing or zero
-   - empty methodology + empty findings + empty limitations beyond threshold
-   - placeholder or obviously generic title
-   - unsafe conflation that cannot be split reliably
+11. These query surfaces should be optimized for correctness and inspectability first, not premature performance tricks.
 
-14. Implement softer classification rules for:
-   - analog but useful
-   - background only
-   - weak theory without empirical value
-   - venue-specific evidence with limited transferability
+### Part E — Documentation and Tests
+12. Add tests for:
+- schema constraints
+- insertion and retrieval of artifact chains
+- corpus snapshot creation
+- immutability/finalization behavior where implemented
+- lineage reconstruction
+- loading accepted_core / analog / quarantine subsets
+- failure behavior for missing or invalid references
 
-15. Preserve a machine-readable audit trail for every decision:
-   - accepted
-   - downgraded
-   - quarantined
-   - discarded
-   - merged
-
-### Part E — Formula Completeness
-16. Add explicit formula completeness status such as:
-   - exact
-   - partial
-   - referenced_only
-   - none
-   - unknown
-
-17. Do not extract formulas deeply in this block.
-Only classify whether formula usability appears sufficient for downstream synthesis.
-
-### Part F — Outputs
-18. Produce outputs that downstream synthesis can consume cleanly:
-   - accepted_core set
-   - accepted_analog set
-   - background set
-   - quarantine set
-   - discard log
-   - duplicate-group log
-   - QA decision summary
-
-19. Make these outputs deterministic and inspectable.
-
-### Part G — Documentation and Tests
-20. Add tests for:
-   - canonicalization
-   - exact duplicate grouping
-   - near-duplicate grouping where implemented
-   - malformed record detection
-   - conflated record handling
-   - hard-fail quarantine rules
-   - accepted_core / analog / background classification
-   - audit trail generation
-
-21. Add developer documentation explaining:
-   - the QA pipeline stages
-   - what qualifies as core / analog / background
-   - what goes to quarantine
-   - what this block guarantees
-   - what this block explicitly does not do
+13. Add developer documentation explaining:
+- the persistence model
+- the meaning of a corpus snapshot / evidence bundle
+- which artifacts are immutable
+- which identifiers are stable
+- how downstream synthesis should consume this block
+- what this block explicitly does not do
 
 ## Technical Specifications
-- Implement inside the existing umbrella project.
-- Keep pure corpus QA logic explicit and testable.
-- Place persistence or workflow glue only where truly needed.
-- Prefer deterministic rule-based logic over fuzzy black-box judgments.
-- Reuse retrieval output contracts from the previous block rather than inventing parallel shapes.
+- Implement this primarily in the persistence/store app.
+- Use Ecto and Postgres for storage.
+- Reuse core-domain structs and outputs from previous blocks rather than inventing parallel shapes.
+- Prefer explicit schemas and explicit repository modules.
+- Use Ecto.Multi where transactional grouping is genuinely useful.
+- Avoid broad meta-repository patterns.
 
-## Library and Testing Rules
-- Prefer standard library and pure functions where possible.
-- TypedStruct is acceptable for core structs.
-- NimbleOptions is acceptable for config validation.
-- ExUnit and StreamData should be used for testing where helpful.
-- Mox is allowed only if a real external boundary from previous blocks must be isolated in tests.
-- Do not introduce embeddings.
-- Do not introduce vector search.
-- Do not introduce LLM-based evidence grading.
-- Do not introduce a rule engine DSL unless there is a very strong reason.
+## Library and Implementation Rules
+- Use Ecto and Postgres.
+- Use standard migrations and explicit constraints.
+- Use ExUnit for tests.
+- Mox is not needed unless a real external boundary must be isolated in tests.
+- Do not introduce graph databases.
+- Do not introduce event-sourcing frameworks.
+- Do not introduce CQRS theatre.
+- Do not introduce a generic artifact engine.
+- Do not hide persistence semantics behind unnecessary behaviours.
 
 ## Constraints
-- Do not call external search APIs in this block.
-- Do not re-run retrieval here.
-- Do not synthesize final reports.
+- Do not re-run retrieval in this block.
+- Do not perform corpus QA in this block beyond persisting its outputs.
+- Do not synthesize reports.
 - Do not extract hypotheses.
-- Do not build the knowledge graph.
-- Do not rank research branches globally.
-- Do not run backtests.
-- Do not hide decisions behind opaque scoring.
-- Do not silently drop bad records without a reason.
+- Do not build knowledge graph reasoning.
+- Do not implement branch scoring.
+- Do not package backtests.
+- Do not silently mutate finalized corpus snapshots.
 
 ## Anti-Goals
-- No literature report generation
-- No semantic summarizer pipeline
-- No embeddings or clustering engine
-- No graph persistence
-- No backtest packaging
-- No black-box evidence scoring
-- No silent dedupe with no provenance
-- No silent discard with no audit reason
+- No literature synthesis
+- No LLM calls
+- No KG reasoning
+- No graph DB
+- No event-sourcing ceremony
+- No generic repository abstraction
+- No hidden mutation of finalized artifacts
+- No persistence-driven rewrites of core domain structs
 
 ## Deliverables
-1. Canonical corpus record model
-2. Duplicate-group and quarantine model
-3. Canonicalization pipeline
-4. Conflated-record handling
-5. Hard-fail and soft classification rules
-6. Deterministic outputs for accepted_core / analog / background / quarantine / discard
-7. Tests and fixtures
-8. Documentation and examples
+1. Ecto schemas and migrations for research artifacts
+2. Registry modules / persistence APIs
+3. Corpus snapshot / evidence bundle creation flow
+4. Lineage-preserving persistence
+5. Read/query surfaces for downstream blocks
+6. Tests and fixtures
+7. Documentation and examples
 
 ## Success Criteria
-- [x] Canonical corpus records can be produced from raw retrieval outputs
-- [x] Exact and near-duplicate records can be grouped explicitly
-- [x] Malformed or conflated records are handled explicitly
-- [x] Hard-fail quarantine rules are implemented
-- [x] Records can be classified into core / analog / background / quarantine / discard
-- [x] Formula completeness status is recorded
-- [x] Every QA decision preserves auditability
-- [x] Tests cover normal and bad-input cases
-- [x] Docs explain guarantees and non-goals
-- [x] No synthesis, hypothesis, KG, or backtest logic has leaked into this block
+- [ ] Research artifacts from previous blocks can be persisted
+- [ ] Corpus snapshots / evidence bundles can be created and loaded deterministically
+- [ ] Lineage from theme -> branch -> query -> retrieval -> QA -> snapshot is preserved
+- [ ] Accepted_core / analog / background / quarantine subsets can be loaded explicitly
+- [ ] Finalized corpus snapshots are stable and not silently mutated
+- [ ] Tests cover persistence, lineage, and lookup behavior
+- [ ] Docs explain guarantees and non-goals
+- [ ] No synthesis, KG, or backtest logic has leaked into this block
 
 ## Checkpoints
-- [x] CHECKPOINT_1: Canonical corpus structs defined
-- [x] CHECKPOINT_2: Canonicalization implemented
-- [x] CHECKPOINT_3: Duplicate grouping implemented
-- [x] CHECKPOINT_4: Conflated/malformed detection implemented
-- [x] CHECKPOINT_5: Classification rules implemented
-- [x] CHECKPOINT_6: Formula completeness status added
-- [x] CHECKPOINT_7: Audit trail outputs implemented
-- [x] CHECKPOINT_8: Tests added
-- [x] CHECKPOINT_9: Docs and examples added
+- [ ] CHECKPOINT_1: Schemas and migrations defined
+- [ ] CHECKPOINT_2: Theme/branch/query persistence implemented
+- [ ] CHECKPOINT_3: Retrieval artifact persistence implemented
+- [ ] CHECKPOINT_4: Corpus QA artifact persistence implemented
+- [ ] CHECKPOINT_5: Corpus snapshot / evidence bundle creation implemented
+- [ ] CHECKPOINT_6: Downstream query surfaces implemented
+- [ ] CHECKPOINT_7: Tests added
+- [ ] CHECKPOINT_8: Docs and examples added
 
 ## Status
-- [x] CHECKPOINT_1
-- [x] CHECKPOINT_2
-- [x] CHECKPOINT_3
-- [x] CHECKPOINT_4
-- [x] CHECKPOINT_5
-- [x] CHECKPOINT_6
-- [x] CHECKPOINT_7
-- [x] CHECKPOINT_8
-- [x] CHECKPOINT_9
-- [x] TASK_COMPLETE
+- [ ] CHECKPOINT_1
+- [ ] CHECKPOINT_2
+- [ ] CHECKPOINT_3
+- [ ] CHECKPOINT_4
+- [ ] CHECKPOINT_5
+- [ ] CHECKPOINT_6
+- [ ] CHECKPOINT_7
+- [ ] CHECKPOINT_8
+- [ ] TASK_COMPLETE
 
 ## Execution Rules
 - Make incremental file changes.
@@ -287,77 +225,29 @@ Only classify whether formula usability appears sufficient for downstream synthe
 - Mark TASK_COMPLETE only when all success criteria are satisfied.
 - Do not continue iterating after TASK_COMPLETE is checked.
 - Do not claim completion only in prose.
-- Prefer explicit rule-based logic over fuzzy general frameworks.
+- Prefer explicit schemas and explicit registry modules over broad abstractions.
 
 ## Progress Log
 <!-- Update during execution -->
-- [x] Define canonical record structs
-- [x] Implement canonicalization
-- [x] Implement duplicate grouping
-- [x] Implement malformed/conflated detection
-- [x] Implement classification rules
-- [x] Add formula completeness status
-- [x] Add audit trail outputs
-- [x] Add tests
-- [x] Add docs
+- [ ] Define schemas and migrations
+- [ ] Implement theme/branch/query persistence
+- [ ] Implement retrieval artifact persistence
+- [ ] Implement corpus QA artifact persistence
+- [ ] Implement corpus snapshot creation
+- [ ] Implement query surfaces
+- [ ] Add tests
+- [ ] Add docs
 
 ## Notes
-- This block answers: "Which retrieved records are structurally usable for downstream evidence synthesis?"
-- This block does not answer: "What is the final literature narrative?" or "Which hypothesis should we trade?"
-- If the code starts summarizing evidence, generating research conclusions, or building graph memory, it has crossed the boundary.
+- This block answers: "How do we store and version research artifacts and QA-approved corpora reproducibly?"
+- This block does not answer: "What does the final literature report say?" or "Which hypothesis should be tested first?"
+- If the code starts summarizing evidence, scoring branches, or building graph reasoning, it has crossed the boundary.
 
 ## Completion Report
 When complete, append a short completion report containing:
 1. what was implemented
 2. what was deliberately deferred
 3. exact files added or changed
-4. example accepted_core / analog / quarantine outputs
-5. example duplicate-group decisions
+4. example corpus snapshot / evidence bundle shape
+5. example lineage reconstruction
 6. remaining limitations
-
-### Completion Report
-
-1. What was implemented
-- Added the `ResearchCore.Corpus` QA surface with explicit structs for raw records, canonical records, duplicate groups, quarantine records, decisions, classifications, rejection reasons, formula completeness, provenance summaries, and final QA outputs.
-- Implemented the deterministic QA pipeline in `ResearchCore.Corpus.QA` covering conflation preprocessing, canonicalization, duplicate grouping, hard-fail handling, rule-based classification, formula usability status, and machine-readable audit logs.
-- Added focused tests for canonicalization, duplicate grouping, malformed inputs, conflation splitting/quarantine, classification buckets, audit trails, and documentation coverage.
-- Added corpus-quality developer documentation describing stages, buckets, guarantees, non-goals, and example outputs.
-
-2. What was deliberately deferred
-- No literature synthesis, hypothesis extraction, knowledge graph logic, backtests, embeddings, or retrieval retries were added.
-- Formula handling remains a coarse usability classification only; this block does not deeply parse or normalize equations.
-- No persistence or orchestration layer was added around QA outputs.
-
-3. Exact files added or changed
-- Changed `PROMPT.md`
-- Added `apps/research_core/lib/research_core/corpus.ex`
-- Added `apps/research_core/lib/research_core/corpus/acceptance_decision.ex`
-- Added `apps/research_core/lib/research_core/corpus/canonical_record.ex`
-- Added `apps/research_core/lib/research_core/corpus/duplicate_group.ex`
-- Added `apps/research_core/lib/research_core/corpus/formula_completeness_status.ex`
-- Added `apps/research_core/lib/research_core/corpus/qa.ex`
-- Added `apps/research_core/lib/research_core/corpus/qa_result.ex`
-- Added `apps/research_core/lib/research_core/corpus/quarantine_record.ex`
-- Added `apps/research_core/lib/research_core/corpus/raw_record.ex`
-- Added `apps/research_core/lib/research_core/corpus/record_classification.ex`
-- Added `apps/research_core/lib/research_core/corpus/rejection_reason.ex`
-- Added `apps/research_core/lib/research_core/corpus/source_identifiers.ex`
-- Added `apps/research_core/lib/research_core/corpus/source_provenance_summary.ex`
-- Added `apps/research_core/test/research_core/corpus/qa_test.exs`
-- Added `apps/research_core/test/research_core/corpus/structs_test.exs`
-- Added `apps/research_core/test/corpus_quality_documentation_test.exs`
-- Added `docs/corpus_quality.md`
-
-4. Example accepted_core / analog / quarantine outputs
-- `accepted_core`: `%CanonicalRecord{id: "canonical-record:f6af46a087e6", classification: :accepted_core, canonical_title: "Prediction Market Calibration Under Stress", formula_completeness_status: :exact}`
-- `accepted_analog`: `%CanonicalRecord{classification: :accepted_analog, canonical_title: "Options Market Calibration for Thin Liquidity", market_type: "options market"}`
-- `quarantine`: `%QuarantineRecord{id: "quarantine:canonical-record:...", reason_codes: [:missing_year]}` and `%QuarantineRecord{id: "quarantine:raw-unsafe", reason_codes: [:unsafe_conflation]}`
-
-5. Example duplicate-group decisions
-- Exact duplicate merge: two records sharing DOI `10.5555/cal-1` are grouped into one `DuplicateGroup` with `match_reasons: [%{rule: :exact_identifier, identifier: :doi, value: "10.5555/cal-1"}]` and a `:merged` audit decision for the losing canonical member.
-- Near-duplicate merge: reordered titles like `Prediction Market Calibration with Order Book Signals` and `Order Book Signals for Prediction Market Calibration` are grouped with `rule: :near_duplicate_title` plus shared token and year-compatibility evidence.
-
-6. Remaining limitations
-- Near-duplicate detection is intentionally rule-based and conservative; it does not attempt semantic clustering.
-- Split records keep shared provenance and URL lineage, so downstream systems should still treat them as candidates derived from one fetched source.
-- Repo-level `mix precommit` is not available from the umbrella or `research_core` app in the current workspace, so verification used `mix format`, targeted corpus tests, and the full `research_core` test suite instead.

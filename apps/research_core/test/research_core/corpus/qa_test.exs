@@ -59,6 +59,38 @@ defmodule ResearchCore.Corpus.QATest do
       assert Enum.any?(result.decision_log, &(&1.action == :merged))
     end
 
+    test "keeps normalized_fields aligned with the merged canonical record" do
+      result =
+        QA.process([
+          core_record(
+            "raw-merge-1",
+            "Prediction Market Calibration Under Stress",
+            "https://example.com/primary"
+          ),
+          core_record(
+            "raw-merge-2",
+            "Prediction Market Calibration Under Stress",
+            "https://mirror.example.com/secondary",
+            citation:
+              "Lee, Ada (2024). Prediction Market Calibration Under Stress. DOI:10.5555/CAL-1",
+            authors: "Lee, Ada"
+          )
+        ])
+
+      assert [
+               %{
+                 canonical_url: canonical_url,
+                 identifiers: identifiers,
+                 normalized_fields: normalized
+               }
+             ] =
+               result.accepted_core
+
+      assert normalized.canonical_url == canonical_url
+      assert normalized.canonical_citation == hd(result.accepted_core).canonical_citation
+      assert normalized.identifiers == Map.from_struct(identifiers)
+    end
+
     test "groups strong near-duplicate titles when year and token overlap line up" do
       result =
         QA.process([
@@ -140,6 +172,29 @@ defmodule ResearchCore.Corpus.QATest do
              )
     end
 
+    test "keeps a single paper title with punctuation as one record when citation does not split" do
+      result =
+        QA.process([
+          raw_record(
+            "raw-punctuated-title",
+            "Calibration Under Stress; Evidence from Thin Markets",
+            "https://example.com/punctuated-title",
+            citation:
+              "Lee, Ada (2024). Calibration Under Stress; Evidence from Thin Markets. DOI:10.5555/PUNCT-1",
+            authors: "Lee, Ada",
+            abstract: "Empirical analysis of prediction market calibration under stress.",
+            methodology: "Randomized controlled experiment with 900 observations.",
+            findings: "Calibration improved under thin market conditions.",
+            limitations: "Only three venues were observed.",
+            formula_text: "score = wins / total"
+          )
+        ])
+
+      assert [%{classification: :accepted_core}] = result.accepted_core
+      assert result.quarantine == []
+      refute Enum.any?(result.decision_log, &(&1.action == :split))
+    end
+
     test "quarantines unsafe conflation that cannot be split reliably" do
       result =
         QA.process([
@@ -174,6 +229,28 @@ defmodule ResearchCore.Corpus.QATest do
         ])
 
       assert [%{reason_codes: [:missing_year]}] = result.quarantine
+    end
+
+    test "allows a valid single record to carry both doi and arxiv identifiers" do
+      result =
+        QA.process([
+          raw_record(
+            "raw-doi-arxiv",
+            "Prediction Market Calibration Under Stress",
+            "https://example.com/dual-id",
+            citation:
+              "Lee, Ada (2024). Prediction Market Calibration Under Stress. DOI:10.5555/CAL-1. arXiv:2401.12345",
+            authors: "Lee, Ada",
+            abstract: "Empirical analysis of prediction market calibration under venue stress.",
+            methodology: "Randomized controlled experiment with 1,200 observations.",
+            findings: "Calibration improved Brier scores and reduced spread noise.",
+            limitations: "Only three venues are observed.",
+            formula_text: "score = wins / total"
+          )
+        ])
+
+      assert [%{identifiers: %{doi: "10.5555/cal-1", arxiv: "2401.12345"}}] = result.accepted_core
+      assert result.quarantine == []
     end
   end
 

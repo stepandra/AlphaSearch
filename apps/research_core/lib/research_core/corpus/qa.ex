@@ -159,36 +159,29 @@ defmodule ResearchCore.Corpus.QA do
         content
       )
 
-    canonical_record = %CanonicalRecord{
-      id: canonical_record_id(raw_record, canonical_title, identifiers, canonical_url, year),
-      canonical_title: fallback(canonical_title, raw_record.search_hit.title) || "untitled",
-      canonical_citation: canonical_citation,
-      canonical_url: canonical_url,
-      year: year,
-      authors: authors,
-      source_type: source_type,
-      identifiers: identifiers,
-      abstract: abstract,
-      content_excerpt: content_excerpt,
-      methodology_summary: methodology_summary,
-      findings_summary: findings_summary,
-      limitations_summary: limitations_summary,
-      direct_product_implication: direct_product_implication,
-      market_type: market_type,
-      formula_completeness_status: formula_completeness_status,
-      source_provenance_summary: build_source_provenance_summary(raw_record, canonical_url),
-      raw_record_ids: [raw_record.id],
-      normalized_fields: %{
-        canonical_title: canonical_title,
+    canonical_record =
+      %CanonicalRecord{
+        id: canonical_record_id(raw_record, canonical_title, identifiers, canonical_url, year),
+        canonical_title: fallback(canonical_title, raw_record.search_hit.title) || "untitled",
         canonical_citation: canonical_citation,
         canonical_url: canonical_url,
         year: year,
         authors: authors,
-        source_label: source_label,
         source_type: source_type,
-        identifiers: Map.from_struct(identifiers)
+        identifiers: identifiers,
+        abstract: abstract,
+        content_excerpt: content_excerpt,
+        methodology_summary: methodology_summary,
+        findings_summary: findings_summary,
+        limitations_summary: limitations_summary,
+        direct_product_implication: direct_product_implication,
+        market_type: market_type,
+        formula_completeness_status: formula_completeness_status,
+        source_provenance_summary: build_source_provenance_summary(raw_record, canonical_url),
+        raw_record_ids: [raw_record.id],
+        normalized_fields: %{}
       }
-    }
+      |> with_normalized_fields(source_label)
 
     enrich_record(canonical_record)
   end
@@ -704,11 +697,22 @@ defmodule ResearchCore.Corpus.QA do
         source_provenance_summary: merged_provenance,
         raw_record_ids:
           (kept.raw_record_ids ++ duplicate.raw_record_ids) |> Enum.uniq() |> Enum.sort(),
-        normalized_fields:
-          kept.normalized_fields
-          |> Map.merge(duplicate.normalized_fields)
-          |> Map.put(:merged_from_record_ids, merged_provenance.merged_from_canonical_ids)
+        normalized_fields: %{}
     }
+    |> with_normalized_fields(
+      normalize_source_label(kept.canonical_url || duplicate.canonical_url)
+    )
+    |> then(fn %CanonicalRecord{} = merged_record ->
+      %{
+        merged_record
+        | normalized_fields:
+            Map.put(
+              merged_record.normalized_fields,
+              :merged_from_record_ids,
+              merged_provenance.merged_from_canonical_ids
+            )
+      }
+    end)
   end
 
   defp merge_identifiers(%SourceIdentifiers{} = left, %SourceIdentifiers{} = right) do
@@ -1023,21 +1027,33 @@ defmodule ResearchCore.Corpus.QA do
   defp unsafe_conflation?(%RawRecord{} = raw_record) do
     title = raw_value(raw_record, :title) || raw_record.search_hit.title
     citation = raw_value(raw_record, :citation)
+    content = fetched_content(raw_record)
 
     identifier_count =
       raw_record
       |> raw_value(:identifiers)
-      |> normalize_identifiers(citation, raw_record.search_hit.url, fetched_content(raw_record))
+      |> normalize_identifiers(citation, raw_record.search_hit.url, content)
       |> bibliographic_identifier_count()
 
-    strong_separator?(title) or strong_separator?(citation) or multiple_years?(title) or
-      multiple_years?(citation) or identifier_count > 1
+    explicit_multi_record_signal? =
+      explicit_multi_record_signal?(title) or explicit_multi_record_signal?(citation) or
+        explicit_multi_record_signal?(content)
+
+    separator_signal? =
+      strong_separator?(citation) or (strong_separator?(title) and strong_separator?(citation))
+
+    identifier_signal? =
+      identifier_count > 1 and (separator_signal? or explicit_multi_record_signal?)
+
+    multiple_years?(title) or multiple_years?(citation) or explicit_multi_record_signal? or
+      identifier_signal?
   end
 
   defp safe_split?(title_parts, citation_parts) do
     length(title_parts) >= 2 and length(title_parts) <= 3 and
       Enum.all?(title_parts, &split_candidate_title?/1) and
-      (citation_parts == [] or length(citation_parts) == length(title_parts))
+      citation_parts != [] and length(citation_parts) == length(title_parts) and
+      Enum.all?(citation_parts, &split_candidate_citation?/1)
   end
 
   defp split_title_parts(nil), do: []
@@ -1053,6 +1069,10 @@ defmodule ResearchCore.Corpus.QA do
     MapSet.size(significant_tokens(title_part)) >= 3 and not placeholder_title?(title_part)
   end
 
+  defp split_candidate_citation?(citation_part) do
+    normalize_year(citation_part) != nil and contains_any?(citation_part, ["(", ")", ","])
+  end
+
   defp strong_separator?(text) when is_binary(text) do
     Regex.match?(~r/\s(?:;|\|)\s/, text)
   end
@@ -1066,6 +1086,20 @@ defmodule ResearchCore.Corpus.QA do
   end
 
   defp multiple_years?(_text), do: false
+
+  defp explicit_multi_record_signal?(text) when is_binary(text) do
+    contains_any?(text, [
+      "multiple papers",
+      "mixed citations",
+      "merged citation",
+      "blends multiple papers",
+      "one source blob",
+      "two papers",
+      "three papers"
+    ])
+  end
+
+  defp explicit_multi_record_signal?(_text), do: false
 
   defp normalize_identifiers(raw_identifiers, citation, canonical_url, content) do
     identifier_map = normalize_identifier_input(raw_identifiers)
@@ -1646,6 +1680,22 @@ defmodule ResearchCore.Corpus.QA do
     else
       right
     end
+  end
+
+  defp with_normalized_fields(%CanonicalRecord{} = record, source_label) do
+    %CanonicalRecord{
+      record
+      | normalized_fields: %{
+          canonical_title: record.canonical_title,
+          canonical_citation: record.canonical_citation,
+          canonical_url: record.canonical_url,
+          year: record.year,
+          authors: record.authors,
+          source_label: source_label,
+          source_type: record.source_type,
+          identifiers: Map.from_struct(record.identifiers)
+        }
+    }
   end
 
   defp shared_split_origin?(%CanonicalRecord{} = left, %CanonicalRecord{} = right) do
