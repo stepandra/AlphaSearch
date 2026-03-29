@@ -1,203 +1,273 @@
-# Patch Query Generation and Retrieval for Source-Scoped Search Optimization
+# Build Corpus QA / Canonicalization / Filtering
 
 ## Objective
-Apply a focused patch across the existing query-generation and retrieval layers so that search is more source-aware, more quota-efficient, and less noisy.
+Implement the corpus-quality layer for the research platform.
 
-This is not a rewrite.
-This task must preserve the existing architecture and only add the missing source-scoped search optimization.
+This block must:
+- accept raw retrieved source material
+- canonicalize records
+- detect and split malformed or conflated records
+- filter low-quality or invalid records
+- classify records into usable buckets
+- preserve auditability for every acceptance, rejection, quarantine, and merge decision
 
-The patch must improve both:
-1. query generation
-2. retrieval execution
+This block is only about corpus quality control and corpus shaping.
+Do not implement literature synthesis, hypothesis extraction, knowledge graph logic, branch scoring, or backtest logic.
 
-## Problem Statement
-The current system generates useful branch and query families, but it does not yet enforce strong source-scoped search behavior.
+## Context
+Previous blocks already provide:
+- normalized themes
+- branches
+- query families
+- retrieval runs
+- normalized search hits
+- fetched page content
+- provider provenance
 
-That causes avoidable waste:
-- too many generic web queries
-- worse precision
-- more duplicate/noisy results
-- weaker coverage control
-- unnecessary search quota burn
+The research system now needs a strict corpus gate between:
+raw retrieval output
+and
+evidence synthesis.
 
-For academic and research-oriented retrieval, generic Google-style search alone is not enough.
-The system must explicitly generate and prioritize source-scoped queries such as:
-- site:arxiv.org
-- site:ssrn.com
-- site:nber.org
-- site:ideas.repec.org
-- site:econpapers.repec.org
-- site:osf.io
-- site:papers.ssrn.com
-- site:openreview.net
-- site:proceedings.mlr.press
-- site:dl.acm.org
+This block must prevent bad corpora from poisoning later steps.
 
-The system must also support scoped official-site or docs-first search patterns where appropriate.
+The quality problems we explicitly expect include:
+- URL-only pseudo-citations
+- placeholder or generic titles
+- duplicate records across providers
+- near-duplicate records across source variants
+- conflated multi-paper records
+- missing methodology / missing venue / missing limitations
+- thin or irrelevant records
+- weak analogs mixed with core evidence
+- papers where formulas are referenced but not extracted cleanly
 
-## Scope
-Patch the existing implementation so that:
-
-### In query generation:
-- source-scoped query families exist explicitly
-- branch intent influences source targeting
-- generated queries include `site:`-scoped variants where appropriate
-- preferred source families are attached to branch/query outputs
-
-### In retrieval:
-- source-scoped queries are executed before generic web queries
-- retrieval preserves source-family provenance
-- fallback to generic web search happens only after scoped attempts or according to explicit policy
+This layer must make these problems explicit and machine-usable.
 
 ## Requirements
 
-### Part A — Query Generation Patch
-1. Add a new explicit query family kind:
-   - `source_scoped`
+### Part A — Canonical Record Model
+1. Define explicit data structures for:
+   - raw corpus record
+   - canonical corpus record
+   - duplicate group
+   - quarantine record
+   - acceptance decision
+   - rejection reason
+   - record classification
+   - formula completeness status
+   - source provenance summary
 
-2. Add an explicit concept of preferred source families, for example:
-   - `academic_preprints`
-   - `econ_working_papers`
-   - `conference_proceedings`
-   - `official_docs`
-   - `official_sites`
-   - `code_repositories`
-   - `general_web`
+2. Canonical corpus records must support fields such as:
+   - canonical title
+   - canonical citation
+   - year
+   - authors if available
+   - source type
+   - source identifiers where available (DOI / arXiv / SSRN / NBER / OSF / URL)
+   - abstract or content excerpt if available
+   - methodology summary if available
+   - findings summary if available
+   - limitations summary if available
+   - direct product implication if available
+   - market type or analog type if available
+   - relevance score fields
+   - evidence score fields
+   - formula completeness status
+   - provenance trace
 
-3. Extend branch/query generation so each branch may include:
-   - `preferred_source_families`
-   - `source_scoped` query families
-   - rationale for source targeting
+3. The canonical model must distinguish:
+   - original raw retrieved data
+   - normalized extracted fields
+   - QA decisions made by this block
 
-4. Implement source-scoped query templates using `site:`-style scoping where appropriate.
+### Part B — Canonicalization
+4. Implement canonicalization logic for:
+   - titles
+   - citations
+   - URLs
+   - identifiers
+   - author strings where practical
+   - year fields
+   - source labels
 
-5. At minimum, support these scoped families:
+5. Implement exact and near-duplicate detection using explicit, inspectable rules.
+At minimum support:
+   - exact identifier match
+   - exact normalized title match
+   - exact canonical URL match
+   - strong near-duplicate title match where practical
 
-#### Academic / research sources
-- `site:arxiv.org`
-- `site:ssrn.com`
-- `site:papers.ssrn.com`
-- `site:nber.org`
-- `site:ideas.repec.org`
-- `site:econpapers.repec.org`
-- `site:osf.io`
-- `site:openreview.net`
-- `site:proceedings.mlr.press`
-- `site:dl.acm.org`
+6. Create duplicate groups and select or derive a canonical representative record.
 
-#### Official/project/documentation sources
-- `site:github.com`
-- `site:readthedocs.io`
-- `site:docs.`
-- official-site scoping where a branch clearly targets a known venue/project/domain
+7. Preserve merge provenance:
+   - which raw records were grouped
+   - why they were grouped
+   - what canonical record was selected or built
 
-6. Add intent-to-source mapping rules.
+### Part C — Conflated and Malformed Records
+8. Detect likely conflated records where a single retrieved record appears to contain multiple papers or mixed citations.
+
+9. For conflated records:
+   - either split them into multiple candidate records if this can be done safely and explicitly
+   - or quarantine them with a clear reason if safe splitting is not possible
+
+10. Detect malformed records such as:
+   - URL-only pseudo-citation
+   - year = 0 or missing year
+   - placeholder title
+   - clearly incomplete metadata
+   - missing critical evidence fields beyond allowed thresholds
+
+### Part D — Filtering and Classification
+11. Classify each canonical or quarantined record into one of:
+   - accepted_core
+   - accepted_analog
+   - background
+   - quarantine
+   - discard
+
+12. Implement explicit rule-based scoring or classification fields for at least:
+   - relevance to the research branch or theme
+   - evidence strength
+   - transferability
+   - citation quality / canonicality
+   - formula actionability
+   - external-validity risk or venue-specificity flag
+
+13. Implement hard-fail rules for quarantine or discard.
 Examples:
-- academic paper search -> academic_preprints / econ_working_papers / conference_proceedings first
-- economics or market design literature -> NBER / SSRN / RePEc first
-- ML / AI / AFT-like research -> arXiv / OpenReview / proceedings first
-- protocol or implementation docs -> official_docs / code_repositories first
-- venue behavior / fee rules / exchange docs -> official_sites first
+   - URL-only citation with no other usable metadata
+   - year missing or zero
+   - empty methodology + empty findings + empty limitations beyond threshold
+   - placeholder or obviously generic title
+   - unsafe conflation that cannot be split reliably
 
-7. Keep the generation deterministic and inspectable.
-Do not add black-box ranking or embeddings.
+14. Implement softer classification rules for:
+   - analog but useful
+   - background only
+   - weak theory without empirical value
+   - venue-specific evidence with limited transferability
 
-### Part B — Retrieval Patch
-8. Update retrieval planning/execution so that:
-   - `source_scoped` queries are executed before generic web queries
-   - provider execution order still respects configured provider priority
-   - generic queries are treated as fallback or broadening passes, not as the first move
+15. Preserve a machine-readable audit trail for every decision:
+   - accepted
+   - downgraded
+   - quarantined
+   - discarded
+   - merged
 
-9. Preserve provenance for:
-   - source family
-   - whether a query was scoped or generic
-   - which scoped pattern generated the query
-   - provider used
-   - original branch
+### Part E — Formula Completeness
+16. Add explicit formula completeness status such as:
+   - exact
+   - partial
+   - referenced_only
+   - none
+   - unknown
 
-10. Add simple retrieval policy rules:
-   - run scoped queries first
-   - stop early if sufficient high-quality scoped coverage is found, if such a policy hook already exists
-   - otherwise continue to generic queries
-   - do not silently mix scoped and generic results without provenance
+17. Do not extract formulas deeply in this block.
+Only classify whether formula usability appears sufficient for downstream synthesis.
 
-11. Ensure exact same URL is not fetched twice in the same retrieval pass even if returned by:
-   - multiple providers
-   - both scoped and generic queries
+### Part F — Outputs
+18. Produce outputs that downstream synthesis can consume cleanly:
+   - accepted_core set
+   - accepted_analog set
+   - background set
+   - quarantine set
+   - discard log
+   - duplicate-group log
+   - QA decision summary
 
-### Part C — Documentation and Tests
-12. Update documentation so it explicitly states:
-   - why source-scoped search exists
-   - which source families are supported
-   - how intent-to-source mapping works
-   - when generic web search is used
-   - what this patch improves and what it still does not solve
+19. Make these outputs deterministic and inspectable.
 
-13. Add tests for:
-   - source-scoped query family generation
-   - intent-to-source mapping
-   - ordering of scoped vs generic query execution
-   - provenance preservation
-   - exact URL de-duplication across scoped/generic/provider overlap
+### Part G — Documentation and Tests
+20. Add tests for:
+   - canonicalization
+   - exact duplicate grouping
+   - near-duplicate grouping where implemented
+   - malformed record detection
+   - conflated record handling
+   - hard-fail quarantine rules
+   - accepted_core / analog / background classification
+   - audit trail generation
 
-## Technical Constraints
-- This is a patch, not a rewrite.
-- Reuse the current branch/query/retrieval structures where possible.
-- Do not introduce a generic meta-search abstraction.
-- Do not introduce LLM logic.
+21. Add developer documentation explaining:
+   - the QA pipeline stages
+   - what qualifies as core / analog / background
+   - what goes to quarantine
+   - what this block guarantees
+   - what this block explicitly does not do
+
+## Technical Specifications
+- Implement inside the existing umbrella project.
+- Keep pure corpus QA logic explicit and testable.
+- Place persistence or workflow glue only where truly needed.
+- Prefer deterministic rule-based logic over fuzzy black-box judgments.
+- Reuse retrieval output contracts from the previous block rather than inventing parallel shapes.
+
+## Library and Testing Rules
+- Prefer standard library and pure functions where possible.
+- TypedStruct is acceptable for core structs.
+- NimbleOptions is acceptable for config validation.
+- ExUnit and StreamData should be used for testing where helpful.
+- Mox is allowed only if a real external boundary from previous blocks must be isolated in tests.
 - Do not introduce embeddings.
-- Do not introduce corpus QA, ranking, evidence scoring, or synthesis into this patch.
-- Do not use Tavily or Exa advanced features.
-- Use only basic search requests for Tavily and Exa.
-- Keep provider adapters explicit and boring.
+- Do not introduce vector search.
+- Do not introduce LLM-based evidence grading.
+- Do not introduce a rule engine DSL unless there is a very strong reason.
 
-## Provider Rules
-- SERPER: generic and scoped web search are allowed
-- JINA: fetch / cleaned content retrieval
-- BRAVE: generic and scoped web search are allowed
-- TAVILY: basic search only
-- EXA: basic search only
-
-The patch must not rely on vendor-specific smart-answer modes, research modes, crawl pipelines, or similar black-box features.
+## Constraints
+- Do not call external search APIs in this block.
+- Do not re-run retrieval here.
+- Do not synthesize final reports.
+- Do not extract hypotheses.
+- Do not build the knowledge graph.
+- Do not rank research branches globally.
+- Do not run backtests.
+- Do not hide decisions behind opaque scoring.
+- Do not silently drop bad records without a reason.
 
 ## Anti-Goals
-- No rewrite of block 2B
-- No rewrite of block 3
-- No provider-specific magic leaking into domain contracts
-- No semantic paper ranking
-- No corpus cleaning
-- No evidence scoring
-- No agentic search wrappers
-- No hidden fusion logic
+- No literature report generation
+- No semantic summarizer pipeline
+- No embeddings or clustering engine
+- No graph persistence
+- No backtest packaging
+- No black-box evidence scoring
+- No silent dedupe with no provenance
+- No silent discard with no audit reason
 
 ## Deliverables
-1. Updated query family generation with `source_scoped`
-2. Intent-to-source mapping rules
-3. Updated retrieval execution order for scoped-first behavior
-4. Provenance updates
-5. Tests
-6. Documentation patch
+1. Canonical corpus record model
+2. Duplicate-group and quarantine model
+3. Canonicalization pipeline
+4. Conflated-record handling
+5. Hard-fail and soft classification rules
+6. Deterministic outputs for accepted_core / analog / background / quarantine / discard
+7. Tests and fixtures
+8. Documentation and examples
 
 ## Success Criteria
-- [x] `source_scoped` query families exist
-- [x] branches can declare preferred source families
-- [x] scoped queries are generated using explicit `site:` patterns where appropriate
-- [x] retrieval executes scoped queries before generic queries
-- [x] scoped/generic/provider provenance is preserved
-- [x] duplicate URLs are not fetched twice within a retrieval pass
-- [x] tests cover generation, ordering, provenance, and dedupe behavior
-- [x] docs explain the new source-scoped behavior clearly
-- [x] no corpus QA, ranking, or synthesis logic leaks into this patch
+- [x] Canonical corpus records can be produced from raw retrieval outputs
+- [x] Exact and near-duplicate records can be grouped explicitly
+- [x] Malformed or conflated records are handled explicitly
+- [x] Hard-fail quarantine rules are implemented
+- [x] Records can be classified into core / analog / background / quarantine / discard
+- [x] Formula completeness status is recorded
+- [x] Every QA decision preserves auditability
+- [x] Tests cover normal and bad-input cases
+- [x] Docs explain guarantees and non-goals
+- [x] No synthesis, hypothesis, KG, or backtest logic has leaked into this block
 
 ## Checkpoints
-- [x] CHECKPOINT_1: Query family model patched
-- [x] CHECKPOINT_2: Intent-to-source mapping added
-- [x] CHECKPOINT_3: Source-scoped query generation added
-- [x] CHECKPOINT_4: Retrieval execution order patched
-- [x] CHECKPOINT_5: Provenance extended
-- [x] CHECKPOINT_6: URL fetch de-duplication verified across scoped/generic overlap
-- [x] CHECKPOINT_7: Tests added
-- [x] CHECKPOINT_8: Docs updated
+- [x] CHECKPOINT_1: Canonical corpus structs defined
+- [x] CHECKPOINT_2: Canonicalization implemented
+- [x] CHECKPOINT_3: Duplicate grouping implemented
+- [x] CHECKPOINT_4: Conflated/malformed detection implemented
+- [x] CHECKPOINT_5: Classification rules implemented
+- [x] CHECKPOINT_6: Formula completeness status added
+- [x] CHECKPOINT_7: Audit trail outputs implemented
+- [x] CHECKPOINT_8: Tests added
+- [x] CHECKPOINT_9: Docs and examples added
 
 ## Status
 - [x] CHECKPOINT_1
@@ -208,6 +278,7 @@ The patch must not rely on vendor-specific smart-answer modes, research modes, c
 - [x] CHECKPOINT_6
 - [x] CHECKPOINT_7
 - [x] CHECKPOINT_8
+- [x] CHECKPOINT_9
 - [x] TASK_COMPLETE
 
 ## Execution Rules
@@ -216,75 +287,77 @@ The patch must not rely on vendor-specific smart-answer modes, research modes, c
 - Mark TASK_COMPLETE only when all success criteria are satisfied.
 - Do not continue iterating after TASK_COMPLETE is checked.
 - Do not claim completion only in prose.
-- Prefer surgical changes over structural rewrites.
+- Prefer explicit rule-based logic over fuzzy general frameworks.
 
 ## Progress Log
 <!-- Update during execution -->
-- [x] Patch query family model
-- [x] Add source-family mapping
-- [x] Add scoped query generation
-- [x] Patch retrieval execution order
-- [x] Extend provenance
-- [x] Verify dedupe behavior
+- [x] Define canonical record structs
+- [x] Implement canonicalization
+- [x] Implement duplicate grouping
+- [x] Implement malformed/conflated detection
+- [x] Implement classification rules
+- [x] Add formula completeness status
+- [x] Add audit trail outputs
 - [x] Add tests
-- [x] Update docs
-- [x] Inspection snapshot (2026-03-29): retrieval currently preserves provider/query provenance and exact fetch URL dedupe, but scoped queries are still metadata-only and the pipeline still executes queries in caller order rather than scoped-first.
+- [x] Add docs
 
 ## Notes
-- This patch answers: "How do we search more efficiently by targeting the right source families first?"
-- This patch does not answer: "Which retrieved documents are high-quality?" or "Which evidence survives corpus QA?"
-- If the code starts doing evidence evaluation, synthesis, or graph logic, it has crossed the boundary.
+- This block answers: "Which retrieved records are structurally usable for downstream evidence synthesis?"
+- This block does not answer: "What is the final literature narrative?" or "Which hypothesis should we trade?"
+- If the code starts summarizing evidence, generating research conclusions, or building graph memory, it has crossed the boundary.
 
 ## Completion Report
 When complete, append a short completion report containing:
-1. what was patched
-2. what was deliberately left unchanged
+1. what was implemented
+2. what was deliberately deferred
 3. exact files added or changed
-4. example scoped queries generated
-5. example retrieval ordering behavior
-6. any remaining limitations
+4. example accepted_core / analog / quarantine outputs
+5. example duplicate-group decisions
+6. remaining limitations
 
 ### Completion Report
 
-1. What was patched
-   - Patched `research_core` query generation so `:source_scoped` families now emit explicit `site:` queries for academic, economics, docs, code-repository, and supported official-site patterns.
-   - Patched `SearchQuery` provenance so scoped/generic metadata and originating branch metadata survive into retrieval.
-   - Patched `research_jobs` retrieval ordering so `source_scoped` queries execute before generic queries while still respecting per-query provider priority.
-   - Verified exact URL fetch dedup across scoped/generic/provider overlap with focused pipeline coverage.
+1. What was implemented
+- Added the `ResearchCore.Corpus` QA surface with explicit structs for raw records, canonical records, duplicate groups, quarantine records, decisions, classifications, rejection reasons, formula completeness, provenance summaries, and final QA outputs.
+- Implemented the deterministic QA pipeline in `ResearchCore.Corpus.QA` covering conflation preprocessing, canonicalization, duplicate grouping, hard-fail handling, rule-based classification, formula usability status, and machine-readable audit logs.
+- Added focused tests for canonicalization, duplicate grouping, malformed inputs, conflation splitting/quarantine, classification buckets, audit trails, and documentation coverage.
+- Added corpus-quality developer documentation describing stages, buckets, guarantees, non-goals, and example outputs.
 
-2. What was deliberately left unchanged
-   - No corpus QA, evidence scoring, synthesis, semantic reranking, or hidden fusion logic was added.
-   - No new meta-search abstraction, embeddings, or provider-specific smart modes were introduced.
-   - No early-stop heuristic was added because there was no existing explicit policy hook for that behavior.
+2. What was deliberately deferred
+- No literature synthesis, hypothesis extraction, knowledge graph logic, backtests, embeddings, or retrieval retries were added.
+- Formula handling remains a coarse usability classification only; this block does not deeply parse or normalize equations.
+- No persistence or orchestration layer was added around QA outputs.
 
 3. Exact files added or changed
-   - Changed `apps/research_core/lib/research_core/branch/search_query.ex`
-   - Changed `apps/research_core/lib/research_core/branch/source_family.ex`
-   - Changed `apps/research_core/lib/research_core/branch/query_family_generator.ex`
-   - Changed `apps/research_core/test/research_core/branch/structs_test.exs`
-   - Changed `apps/research_core/test/research_core/branch/query_family_generator_test.exs`
-   - Changed `apps/research_core/test/research_core/branch/search_plan_generator_test.exs`
-   - Added `apps/research_core/test/branch_generation_documentation_test.exs`
-   - Changed `apps/research_core/test/retriever_source_acquisition_documentation_test.exs`
-   - Changed `apps/research_jobs/lib/research_jobs/retrieval/pipeline.ex`
-   - Changed `apps/research_jobs/test/research_jobs/retrieval/pipeline_test.exs`
-   - Changed `docs/branch_generation.md`
-   - Changed `docs/retriever_source_acquisition.md`
-   - Changed `PROMPT.md`
+- Changed `PROMPT.md`
+- Added `apps/research_core/lib/research_core/corpus.ex`
+- Added `apps/research_core/lib/research_core/corpus/acceptance_decision.ex`
+- Added `apps/research_core/lib/research_core/corpus/canonical_record.ex`
+- Added `apps/research_core/lib/research_core/corpus/duplicate_group.ex`
+- Added `apps/research_core/lib/research_core/corpus/formula_completeness_status.ex`
+- Added `apps/research_core/lib/research_core/corpus/qa.ex`
+- Added `apps/research_core/lib/research_core/corpus/qa_result.ex`
+- Added `apps/research_core/lib/research_core/corpus/quarantine_record.ex`
+- Added `apps/research_core/lib/research_core/corpus/raw_record.ex`
+- Added `apps/research_core/lib/research_core/corpus/record_classification.ex`
+- Added `apps/research_core/lib/research_core/corpus/rejection_reason.ex`
+- Added `apps/research_core/lib/research_core/corpus/source_identifiers.ex`
+- Added `apps/research_core/lib/research_core/corpus/source_provenance_summary.ex`
+- Added `apps/research_core/test/research_core/corpus/qa_test.exs`
+- Added `apps/research_core/test/research_core/corpus/structs_test.exs`
+- Added `apps/research_core/test/corpus_quality_documentation_test.exs`
+- Added `docs/corpus_quality.md`
 
-4. Example scoped queries generated
-   - `site:readthedocs.io order routing public API docs`
-   - `site:docs. order routing public API docs`
-   - `site:github.com order routing public API docs`
-   - `site:arxiv.org protocol incentive design paper scholarly review`
-   - `site:openreview.net protocol incentive design paper scholarly review`
+4. Example accepted_core / analog / quarantine outputs
+- `accepted_core`: `%CanonicalRecord{id: "canonical-record:f6af46a087e6", classification: :accepted_core, canonical_title: "Prediction Market Calibration Under Stress", formula_completeness_status: :exact}`
+- `accepted_analog`: `%CanonicalRecord{classification: :accepted_analog, canonical_title: "Options Market Calibration for Thin Liquidity", market_type: "options market"}`
+- `quarantine`: `%QuarantineRecord{id: "quarantine:canonical-record:...", reason_codes: [:missing_year]}` and `%QuarantineRecord{id: "quarantine:raw-unsafe", reason_codes: [:unsafe_conflation]}`
 
-5. Example retrieval ordering behavior
-   - If the caller passes `[generic_query, scoped_query]`, the pipeline now executes `scoped_query` first.
-   - Within that scoped query, provider attempts still follow configured order such as `[:serper, :brave]`.
-   - Generic fallback runs afterward, and if both scoped and generic passes surface the same URL, only one fetch is issued for that URL.
+5. Example duplicate-group decisions
+- Exact duplicate merge: two records sharing DOI `10.5555/cal-1` are grouped into one `DuplicateGroup` with `match_reasons: [%{rule: :exact_identifier, identifier: :doi, value: "10.5555/cal-1"}]` and a `:merged` audit decision for the losing canonical member.
+- Near-duplicate merge: reordered titles like `Prediction Market Calibration with Order Book Signals` and `Order Book Signals for Prediction Market Calibration` are grouped with `rule: :near_duplicate_title` plus shared token and year-compatibility evidence.
 
 6. Remaining limitations
-   - Official-site scoped expansion is intentionally limited to the explicit supported domain mappings currently encoded in `SourceFamily`.
-   - There is still no explicit retrieval policy hook for stopping early after sufficient scoped coverage.
-   - Repo-root `mix precommit` still fails outside this patch because `ResearchStore.Repo` is missing `priv/repo/migrations` in the current workspace.
+- Near-duplicate detection is intentionally rule-based and conservative; it does not attempt semantic clustering.
+- Split records keep shared provenance and URL lineage, so downstream systems should still treat them as candidates derived from one fetched source.
+- Repo-level `mix precommit` is not available from the umbrella or `research_core` app in the current workspace, so verification used `mix format`, targeted corpus tests, and the full `research_core` test suite instead.
