@@ -1,253 +1,648 @@
-# Build Evidence Store / Corpus Registry
+# Build Strategy Spec Builder / Formula & Rules Extractor
 
 ## Objective
-Implement the persistence and registry layer for research artifacts and corpus outputs.
+
+Implement the strategy-spec extraction layer for the research platform.
 
 This block must:
-- persist the outputs of previous blocks
-- version and register corpus snapshots
-- preserve lineage from theme and branch generation through retrieval and corpus QA
-- expose stable registry/query interfaces for downstream synthesis and hypothesis-building
 
-This block is only about persistence, registry structure, and reproducible artifact lookup.
-Do not implement synthesis, hypothesis extraction, knowledge graph reasoning, branch scoring, or backtest logic.
+* consume a finalized corpus snapshot and a validated synthesis artifact
+* extract exact and partial formulas from the synthesis and linked evidence
+* convert report conclusions into structured strategy candidates
+* normalize each candidate into a machine-usable strategy specification
+* classify each candidate by readiness for downstream backtesting
+* preserve evidence linkage from each strategy spec back to cited records and synthesis sections
+
+This block is only about turning validated synthesis into structured strategy specs.
+
+Do not implement knowledge-graph reasoning, branch scoring, retrieval execution changes, corpus QA logic, or backtest execution in this block.
+
+---
 
 ## Context
+
 Previous blocks already provide:
-- normalized themes
-- branches
-- query families
-- retrieval runs and normalized hits
-- fetched documents
-- canonical corpus records
-- duplicate groups
-- QA decisions
-- accepted_core / accepted_analog / background / quarantine / discard outputs
 
-We now need a durable registry layer so these results become reusable, reproducible research artifacts.
+* normalized themes
+* branches
+* query families
+* retrieval runs and normalized hits
+* fetched documents
+* canonical corpus records
+* duplicate groups
+* QA decisions
+* immutable corpus snapshots / evidence bundles
+* validated synthesis runs and persisted report artifacts
+* stable citation keys tied to snapshot records
+* lineage and provenance query surfaces
 
-This layer must support:
-- re-running synthesis on a specific corpus snapshot
-- comparing corpus versions across runs
-- tracing which queries and retrieval runs produced which accepted evidence
-- preserving auditability and provenance
-- avoiding recomputation of already validated intermediate artifacts
+The synthesis artifact already contains structured research output such as:
+
+* executive summary
+* ranked important papers/findings
+* taxonomy
+* directly reusable formulas
+* open research gaps
+* prototype recommendations
+
+The next required step is not vague hypothesis generation.
+The next required step is converting validated research into explicit strategy specifications that can be handed to downstream validation and backtesting.
+
+A valid strategy spec must be closer to a research DSL than to prose.
+It must make explicit:
+
+* thesis
+* signal or rule
+* formula(s)
+* required features
+* required datasets
+* execution assumptions
+* sizing assumptions
+* suggested validation direction
+* readiness state
+
+---
 
 ## Requirements
 
-### Part A — Persistence Model
-1. Implement persistence models and migrations for the core research artifacts needed at this stage.
+### Part A — Strategy Spec Domain Model
 
-At minimum, support persistence for:
-- research themes
-- normalized themes
-- branches
-- query families / generated queries
-- retrieval runs
-- normalized retrieval hits
-- fetched documents
-- canonical corpus records
-- duplicate groups
-- QA decisions
-- corpus snapshots or evidence bundles
+1. Define explicit domain structures for:
 
-2. Define a stable concept of a versioned corpus artifact, such as:
-- `corpus_snapshot`
-or
-- `evidence_bundle`
+* strategy_spec
+* strategy_candidate
+* formula_candidate
+* rule_candidate
+* evidence_link
+* strategy_extraction_run
+* strategy_validation_result
+* strategy_readiness
+* execution_assumption
+* feature_requirement
+* data_requirement
+* validation_hint
+* metric_hint
 
-This artifact must be able to represent:
-- accepted_core set
-- accepted_analog set
-- background set
-- quarantine set
-- discard summary
-- QA summary metadata
-- source lineage
+2. Each strategy spec must answer, at minimum:
 
-3. The persistence model must preserve lineage between stages.
-At minimum, the registry must be able to answer:
-- which theme/run produced this branch?
-- which branch produced this query?
-- which query produced this retrieval run?
-- which retrieval outputs fed this canonical corpus record?
-- which QA decision placed this record into accepted_core / analog / quarantine / discard?
-- which corpus snapshot contains this record?
+* what is the strategy thesis?
+* what market or domain does it apply to?
+* what is the signal or decision rule?
+* what formula or rule is used?
+* what evidence supports it?
+* what assumptions are required?
+* what data/features are required?
+* how should it be tested?
+* what makes it invalid or not yet testable?
 
-### Part B — Repository / Registry API
-4. Implement explicit registry modules or repository-facing APIs for:
-- storing research themes and normalized themes
-- storing branch/query generation outputs
-- storing retrieval outputs
-- storing canonical corpus outputs
-- creating a corpus snapshot / evidence bundle
-- loading a corpus snapshot for downstream use
-- listing and inspecting prior snapshots
+3. Support at least these strategy categories:
 
-5. Keep registry interfaces explicit and boring.
-Do not build a generic repository abstraction layer.
+* calibration_strategy
+* execution_strategy
+* coherence_arbitrage_strategy
+* sizing_strategy
+* behavioral_filter_strategy
+* analog_transfer_strategy
+* market_structure_strategy
 
-6. Support idempotent or safe insertion patterns where practical, especially for:
-- retrieval runs
-- fetched documents by exact URL or content fingerprint where appropriate
-- canonical corpus records by stable identifiers where appropriate
+### Part B — Inputs and Extraction Scope
 
-### Part C — Versioning and Auditability
-7. Corpus snapshots must be immutable once finalized, or treated as append-only finalized artifacts.
+4. Implement an input packager that consumes:
 
-8. Preserve enough metadata to compare snapshots across runs, including:
-- creation time
-- upstream theme / branch / run references
-- counts by category
-- QA summary
-- duplicate summary
-- quarantine summary
+* finalized corpus snapshot
+* validated synthesis artifact
+* synthesis profile metadata where useful
+* optional branch/theme context
 
-9. Preserve machine-readable auditability for:
-- why a record is present in a snapshot
-- what upstream run produced it
-- what QA decision classified it
-- whether it came through duplicate merging
+5. The input packager must expose:
 
-### Part D — Query Surfaces
-10. Add explicit read/query surfaces for downstream blocks.
-At minimum support loading:
-- latest corpus snapshot for a branch or theme
-- corpus snapshot by ID
-- accepted_core records for a snapshot
-- accepted_analog records for a snapshot
-- quarantine records and reasons for a snapshot
-- duplicate groups for a snapshot
-- provenance summary for a canonical record
+* report sections
+* cited record keys and resolved records
+* snapshot metadata
+* record-level formula availability
+* provenance summaries where useful
 
-11. These query surfaces should be optimized for correctness and inspectability first, not premature performance tricks.
+6. Extraction must only run from validated synthesis artifacts.
+   Do not extract from raw provider output that failed synthesis validation.
 
-### Part E — Documentation and Tests
-12. Add tests for:
-- schema constraints
-- insertion and retrieval of artifact chains
-- corpus snapshot creation
-- immutability/finalization behavior where implemented
-- lineage reconstruction
-- loading accepted_core / analog / quarantine subsets
-- failure behavior for missing or invalid references
+7. Extraction scope must explicitly include:
 
-13. Add developer documentation explaining:
-- the persistence model
-- the meaning of a corpus snapshot / evidence bundle
-- which artifacts are immutable
-- which identifiers are stable
-- how downstream synthesis should consume this block
-- what this block explicitly does not do
+* executive summary
+* ranked papers / key findings
+* taxonomy
+* directly reusable formulas
+* open research gaps
+* prototype recommendations
+
+### Part C — Formula Extraction
+
+8. Implement explicit formula extraction and normalization.
+
+For each extracted formula or rule, capture:
+
+* stable formula ID
+* source section(s)
+* supporting citation keys
+* formula text exactly as available
+* whether formula is exact or partial
+* symbol glossary if derivable
+* formula role:
+
+  * calibration
+  * execution
+  * arbitrage_or_coherence
+  * sizing
+  * behavioral_adjustment
+  * other
+
+9. Formula rules:
+
+* if the source provides an exact formula, preserve it exactly
+* if the source only says a formula exists but does not provide the exact text, mark it as partial and blocked
+* do not fabricate missing equations
+* preserve uncertainty explicitly
+
+10. Add validation rules:
+
+* exact formulas must cite at least one real supporting record
+* partial formulas must be marked partial
+* unknown citation keys invalidate the candidate
+* formulas without provenance must be rejected
+
+### Part D — Strategy Candidate Extraction
+
+11. Implement extraction of strategy candidates from the validated report.
+
+Each candidate should capture fields conceptually equivalent to:
+
+* stable ID
+* title
+* thesis
+* category
+* market_or_domain_applicability
+* direct signal or rule
+* entry_condition
+* exit_condition
+* formula references
+* required features
+* required datasets
+* execution assumptions
+* sizing assumptions
+* evidence references
+* conflicting or cautionary evidence
+* expected edge source
+* validation hints
+* candidate metrics
+* falsification idea
+* readiness status
+* notes
+
+12. Each strategy candidate must distinguish between:
+
+* directly specified strategy
+* formula-backed but incomplete strategy
+* analog transfer candidate
+* speculative idea not yet backtestable
+
+13. Add explicit readiness states such as:
+
+* ready_for_backtest
+* needs_feature_build
+* needs_formula_completion
+* needs_data_mapping
+* reject
+
+14. Add explicit evidence strength fields such as:
+
+* strong
+* moderate
+* weak
+* speculative
+
+15. Add explicit actionability fields such as:
+
+* immediate
+* near_term
+* exploratory
+* background_only
+
+### Part E — Extraction Logic
+
+16. Implement extraction logic that turns report text into normalized strategy specs.
+
+At minimum, support:
+
+* extracting formula-backed candidate strategies
+* extracting rule-based candidate strategies
+* linking each strategy to cited evidence
+* linking formulas to strategy candidates
+* merging near-duplicate candidates
+* rejecting narrative filler that does not imply a testable strategy
+
+17. The extraction logic should be explicit and inspectable.
+    Do not hide the whole process inside a giant opaque prompt.
+
+18. Use an LLM only behind a narrow provider boundary, and only for:
+
+* formula candidate extraction
+* strategy candidate extraction
+* structured normalization into intermediate machine-readable output
+
+19. Deterministic post-processing must:
+
+* reject unsupported candidates
+* reject phantom citations
+* reject candidates with no testable rule/formula and no explicit data path
+* downgrade analog-only candidates
+* collapse semantically overlapping candidates where practical
+
+### Part F — Strategy Validation
+
+20. Implement validation rules for strategy specs.
+
+At minimum validate:
+
+* required fields are present
+* supporting citation keys resolve to the snapshot
+* every strategy has either:
+
+  * at least one exact formula
+  * or at least one explicit decision rule
+* readiness status is present
+* evidence strength is present
+* directly specified strategies are not labeled speculative
+* analog-transfer strategies are labeled analog_transfer
+* blocked candidates are not mislabeled ready_for_backtest
+
+21. Preserve caution and limitations.
+    If the report includes important warnings or external-validity limits, carry them into the strategy spec.
+
+### Part G — Persistence and Query Surfaces
+
+22. Extend persistence for:
+
+* strategy extraction runs
+* formula candidates
+* strategy artifacts
+* persisted strategy specs
+* strategy-to-citation links
+* strategy-to-formula links
+* strategy-to-report links
+
+23. Each persisted strategy spec must be linked to:
+
+* source synthesis run
+* source synthesis artifact
+* source corpus snapshot
+* source branch/theme context where derivable
+
+24. Add query surfaces for:
+
+* strategies by synthesis run
+* strategies by snapshot
+* latest strategies for a branch/theme
+* strategies by readiness
+* strategies by category
+* formulas by strategy
+* one strategy with full support and provenance
+* all `ready_for_backtest` strategies for downstream packaging
+
+### Part H — Output Shape for Next Block
+
+25. The strategy layer must output stable machine-usable specs suitable for the next block.
+
+At minimum, each ready or near-ready strategy spec must expose:
+
+* thesis
+* signal_or_rule
+* formula references
+* feature requirements
+* data requirements
+* execution assumptions
+* sizing assumptions
+* candidate metrics
+* falsification idea
+* readiness status
+
+26. This block may suggest validation directions, but must not build executable backtest plans yet.
+
+### Part I — Documentation and Tests
+
+27. Add tests for:
+
+* extraction from validated synthesis
+* formula extraction correctness
+* exact vs partial formula handling
+* evidence linkage correctness
+* duplicate suppression
+* readiness classification
+* rejection of unsupported candidates
+* persistence and reload of strategy artifacts
+* query surfaces
+* failure behavior for invalid citations or malformed extraction output
+
+28. Add developer documentation explaining:
+
+* what a strategy spec is
+* how it differs from synthesis text
+* how formulas are represented
+* what makes a strategy backtest-ready vs blocked
+* how evidence linkage works
+* what this block explicitly does not do
+* how the next backtest-spec block should consume strategy specs
+
+---
 
 ## Technical Specifications
-- Implement this primarily in the persistence/store app.
-- Use Ecto and Postgres for storage.
-- Reuse core-domain structs and outputs from previous blocks rather than inventing parallel shapes.
-- Prefer explicit schemas and explicit repository modules.
-- Use Ecto.Multi where transactional grouping is genuinely useful.
-- Avoid broad meta-repository patterns.
+
+* Implement primarily in `research_core` and `research_jobs`
+* Extend `research_store` only where persistence/query support is needed
+* Reuse synthesis artifacts and snapshot registry APIs rather than bypassing them
+* Use Ecto and Postgres for persisted metadata
+* Use ExUnit for tests
+* Use Mox only if genuinely useful for the external extraction-provider boundary
+
+---
+
+## Libraries To Use
+
+Use these libraries unless there is a strong concrete reason not to:
+
+* `:instructor`
+
+  * use as the primary LLM structured-output wrapper
+  * define response models as Ecto-backed embedded schemas or equivalent changeset-validated schemas
+  * use it for formula extraction and strategy-candidate extraction only
+
+* `:req`
+
+  * use as the HTTP transport layer where needed
+  * use for any provider integrations or narrow custom adapters if required
+
+* `:nimble_options`
+
+  * use for validating provider config, model config, profile config, retry config, and extraction options
+
+* `:mox`
+
+  * use for mocking the external extraction-provider boundary in tests
+
+* `:stream_data`
+
+  * use for property tests on citation validation, duplicate suppression, readiness invariants, and unsupported-candidate rejection
+
+* `:oban`
+
+  * reuse the existing job orchestration layer for extraction runs
+  * do not turn it into a general-purpose streaming bus
+
+* `:ecto`
+
+  * use for schemas, embedded schemas where appropriate, changesets, and persistence
+
+* `:jason` only if already required by existing dependencies
+
+  * do not add JSON abstraction theatre
+  * prefer simple explicit encoding/decoding where needed
+
+Do not introduce:
+
+* `:langchain`
+* graph databases
+* generic prompt engines
+* agent frameworks
+* CQRS or event-sourcing ceremony
+* a generic artifact engine
+
+---
 
 ## Library and Implementation Rules
-- Use Ecto and Postgres.
-- Use standard migrations and explicit constraints.
-- Use ExUnit for tests.
-- Mox is not needed unless a real external boundary must be isolated in tests.
-- Do not introduce graph databases.
-- Do not introduce event-sourcing frameworks.
-- Do not introduce CQRS theatre.
-- Do not introduce a generic artifact engine.
-- Do not hide persistence semantics behind unnecessary behaviours.
+
+* Prefer explicit structs and explicit extraction modules
+* Prefer deterministic normalization after any provider-assisted extraction
+* Keep provider boundaries narrow
+* Keep formula provenance first-class
+* Keep evidence linkage first-class
+* Prefer boring inspectable heuristics over fake intelligence
+* Store raw extraction output separately from validated normalized artifacts if helpful
+* Use Instructor response models plus changeset validation instead of free-form JSON parsing where practical
+* Do not let provider-specific response shapes leak across the boundary
+
+---
 
 ## Constraints
-- Do not re-run retrieval in this block.
-- Do not perform corpus QA in this block beyond persisting its outputs.
-- Do not synthesize reports.
-- Do not extract hypotheses.
-- Do not build knowledge graph reasoning.
-- Do not implement branch scoring.
-- Do not package backtests.
-- Do not silently mutate finalized corpus snapshots.
+
+* Do not re-run retrieval
+* Do not re-run corpus QA
+* Do not mutate finalized snapshots
+* Do not mutate validated synthesis artifacts
+* Do not build knowledge-graph reasoning
+* Do not score branches
+* Do not package or execute backtests
+* Do not silently collapse uncertainty into fake precision
+* Do not fabricate formulas
+
+---
 
 ## Anti-Goals
-- No literature synthesis
-- No LLM calls
-- No KG reasoning
-- No graph DB
-- No event-sourcing ceremony
-- No generic repository abstraction
-- No hidden mutation of finalized artifacts
-- No persistence-driven rewrites of core domain structs
+
+* No KG reasoning
+* No branch exploration policy
+* No backtest execution
+* No live trading logic
+* No generic reasoning engine
+* No graph DB
+* No hidden provider magic
+* No fabricated evidence or formulas
+
+---
 
 ## Deliverables
-1. Ecto schemas and migrations for research artifacts
-2. Registry modules / persistence APIs
-3. Corpus snapshot / evidence bundle creation flow
-4. Lineage-preserving persistence
-5. Read/query surfaces for downstream blocks
-6. Tests and fixtures
-7. Documentation and examples
+
+1. Strategy-spec domain structs/modules
+2. Input packager from synthesis + snapshot
+3. Formula extraction and normalization flow
+4. Strategy candidate extraction and normalization flow
+5. Validation rules for strategy specs
+6. Persistence for extraction runs, formulas, and strategy specs
+7. Query surfaces for downstream consumers
+8. Tests and fixtures
+9. Documentation and examples
+
+---
 
 ## Success Criteria
-- [ ] Research artifacts from previous blocks can be persisted
-- [ ] Corpus snapshots / evidence bundles can be created and loaded deterministically
-- [ ] Lineage from theme -> branch -> query -> retrieval -> QA -> snapshot is preserved
-- [ ] Accepted_core / analog / background / quarantine subsets can be loaded explicitly
-- [ ] Finalized corpus snapshots are stable and not silently mutated
-- [ ] Tests cover persistence, lineage, and lookup behavior
-- [ ] Docs explain guarantees and non-goals
-- [ ] No synthesis, KG, or backtest logic has leaked into this block
+
+* [x] A validated synthesis artifact can be converted into structured strategy specs
+* [x] Exact and partial formulas are extracted and labeled correctly
+* [x] Every accepted strategy links back to real snapshot evidence
+* [x] Strategy specs are categorized explicitly
+* [x] Readiness for downstream backtesting is explicit
+* [x] Unsupported or phantom-cited strategies are rejected
+* [x] Near-duplicate strategy candidates are collapsed predictably
+* [x] Strategy artifacts are persisted and reloadable
+* [x] Downstream code can load `ready_for_backtest` strategies by snapshot, report, branch, and category
+* [x] No KG, branch scoring, or backtest execution logic leaks into this block
+
+---
 
 ## Checkpoints
-- [ ] CHECKPOINT_1: Schemas and migrations defined
-- [ ] CHECKPOINT_2: Theme/branch/query persistence implemented
-- [ ] CHECKPOINT_3: Retrieval artifact persistence implemented
-- [ ] CHECKPOINT_4: Corpus QA artifact persistence implemented
-- [ ] CHECKPOINT_5: Corpus snapshot / evidence bundle creation implemented
-- [ ] CHECKPOINT_6: Downstream query surfaces implemented
-- [ ] CHECKPOINT_7: Tests added
-- [ ] CHECKPOINT_8: Docs and examples added
+
+* [x] CHECKPOINT_1: Strategy structs defined
+* [x] CHECKPOINT_2: Input packager implemented
+* [x] CHECKPOINT_3: Formula extraction implemented
+* [x] CHECKPOINT_4: Strategy extraction implemented
+* [x] CHECKPOINT_5: Validation rules implemented
+* [x] CHECKPOINT_6: Duplicate suppression / grouping implemented
+* [x] CHECKPOINT_7: Persistence implemented
+* [x] CHECKPOINT_8: Query surfaces implemented
+* [x] CHECKPOINT_9: Tests added
+* [x] CHECKPOINT_10: Docs completed
 
 ## Status
-- [ ] CHECKPOINT_1
-- [ ] CHECKPOINT_2
-- [ ] CHECKPOINT_3
-- [ ] CHECKPOINT_4
-- [ ] CHECKPOINT_5
-- [ ] CHECKPOINT_6
-- [ ] CHECKPOINT_7
-- [ ] CHECKPOINT_8
-- [ ] TASK_COMPLETE
+
+* [x] CHECKPOINT_1
+* [x] CHECKPOINT_2
+* [x] CHECKPOINT_3
+* [x] CHECKPOINT_4
+* [x] CHECKPOINT_5
+* [x] CHECKPOINT_6
+* [x] CHECKPOINT_7
+* [x] CHECKPOINT_8
+* [x] CHECKPOINT_9
+* [x] CHECKPOINT_10
+* [x] TASK_COMPLETE
+
+---
 
 ## Execution Rules
-- Make incremental file changes.
-- Update the Status section in this file as checkpoints are completed.
-- Mark TASK_COMPLETE only when all success criteria are satisfied.
-- Do not continue iterating after TASK_COMPLETE is checked.
-- Do not claim completion only in prose.
-- Prefer explicit schemas and explicit registry modules over broad abstractions.
+
+* Make incremental file changes.
+* Update the Status section in this file as checkpoints are completed.
+* Mark TASK_COMPLETE only when all success criteria are satisfied.
+* Do not continue iterating after TASK_COMPLETE is checked.
+* Do not claim completion only in prose.
+* Prefer explicit strategy structs and validators over broad abstractions.
+* If extraction output fails validation, persist the failed run and validation reasons rather than papering over it.
+
+---
 
 ## Progress Log
+
 <!-- Update during execution -->
-- [ ] Define schemas and migrations
-- [ ] Implement theme/branch/query persistence
-- [ ] Implement retrieval artifact persistence
-- [ ] Implement corpus QA artifact persistence
-- [ ] Implement corpus snapshot creation
-- [ ] Implement query surfaces
-- [ ] Add tests
-- [ ] Add docs
+
+* [x] Define strategy structs and modules
+* [x] Implement synthesis-to-strategy input packaging
+* [x] Implement formula extraction
+* [x] Implement strategy extraction
+* [x] Implement validation
+* [x] Implement duplicate suppression
+* [x] Implement persistence
+* [x] Implement query surfaces
+* [x] Add tests
+* [x] Add docs
+
+---
 
 ## Notes
-- This block answers: "How do we store and version research artifacts and QA-approved corpora reproducibly?"
-- This block does not answer: "What does the final literature report say?" or "Which hypothesis should be tested first?"
-- If the code starts summarizing evidence, scoring branches, or building graph reasoning, it has crossed the boundary.
+
+* This block answers: "What concrete, evidence-linked, formula-aware strategy specs can we extract from a validated research report?"
+* This block does not answer: "Which branch should we research next?" or "How do we execute the backtest?"
+* If the code starts building a graph, ranking branches, or running experiments, it has crossed the boundary.
+* The main guardrail is formula and evidence provenance.
+* The second guardrail is readiness classification: not every extracted idea is actually backtestable.
+
+---
 
 ## Completion Report
+
 When complete, append a short completion report containing:
+
 1. what was implemented
 2. what was deliberately deferred
 3. exact files added or changed
-4. example corpus snapshot / evidence bundle shape
-5. example lineage reconstruction
-6. remaining limitations
+4. example strategy spec shape
+5. example formula candidate shape
+6. example rejected candidate shape
+7. remaining limitations
+
+---
+
+The orchestrator will continue iterations until all success criteria are met or limits are reached.
+
+## Completion Report
+
+1. Implemented a full strategy-spec extraction layer across `research_core`, `research_jobs`, and `research_store`: validated synthesis input packaging, formula normalization, strategy candidate normalization, duplicate suppression, readiness/actionability classification, persistence, and downstream query surfaces.
+2. Kept the provider boundary narrow and inspectable: deterministic fake/stub providers remain for tests, and a live Instructor-backed strategy provider can now run against configured credentials without changing downstream normalization or persistence behavior.
+3. Exact files added or changed:
+   - `PROMPT.md`
+   - `apps/research_core/lib/research_core/strategy.ex`
+   - `apps/research_core/lib/research_core/strategy/*.ex`
+   - `apps/research_core/test/research_core/strategy/strategy_pipeline_test.exs`
+   - `apps/research_jobs/mix.exs`
+   - `apps/research_jobs/lib/research_jobs/strategy/provider.ex`
+   - `apps/research_jobs/lib/research_jobs/strategy/provider_error.ex`
+   - `apps/research_jobs/lib/research_jobs/strategy/provider_response.ex`
+   - `apps/research_jobs/lib/research_jobs/strategy/prompt_builder.ex`
+   - `apps/research_jobs/lib/research_jobs/strategy/runner.ex`
+   - `apps/research_jobs/lib/research_jobs/strategy/providers/fake.ex`
+   - `apps/research_jobs/lib/research_jobs/strategy/providers/stub.ex`
+   - `apps/research_jobs/lib/research_jobs/strategy/models/*.ex`
+   - `apps/research_jobs/test/research_jobs/strategy/runner_test.exs`
+   - `apps/research_jobs/test/research_jobs/strategy/documentation_test.exs`
+   - `apps/research_store/lib/research_store.ex`
+   - `apps/research_store/lib/research_store/strategy_registry.ex`
+   - `apps/research_store/lib/research_store/artifacts/strategy_extraction_run.ex`
+   - `apps/research_store/lib/research_store/artifacts/strategy_validation_result.ex`
+   - `apps/research_store/lib/research_store/artifacts/strategy_formula_candidate.ex`
+   - `apps/research_store/lib/research_store/artifacts/strategy_spec.ex`
+   - `apps/research_store/priv/repo/migrations/20260330114622_add_strategy_extraction_registry_tables.exs`
+   - `apps/research_store/test/research_store/strategy_registry_test.exs`
+   - `docs/strategy_spec_builder.md`
+   - `mix.lock`
+4. Example strategy spec shape:
+   ```elixir
+   %ResearchCore.Strategy.StrategySpec{
+     id: "strategy_spec_123",
+     title: "Calibration Gate",
+     thesis: "Trade only when calibration exceeds the venue baseline.",
+     category: :calibration_strategy,
+     readiness: :ready_for_backtest,
+     actionability: :immediate,
+     formula_ids: ["formula_candidate_123"],
+     decision_rule: %{
+       signal_or_rule: "enter when score > 0.62",
+       entry_condition: "score > 0.62",
+       exit_condition: "score < 0.55",
+       formula_ids: ["formula_candidate_123"],
+       rule_ids: ["rule_candidate_123"]
+     }
+   }
+   ```
+5. Example formula candidate shape:
+   ```elixir
+   %ResearchCore.Strategy.FormulaCandidate{
+     id: "formula_candidate_123",
+     formula_text: "score = wins / total",
+     exact?: true,
+     partial?: false,
+     blocked?: false,
+     role: :calibration,
+     supporting_citation_keys: ["REC_0001"]
+   }
+   ```
+6. Example rejected candidate shape:
+   ```elixir
+   %{
+     type: :unknown_citation_key,
+     severity: :fatal,
+     message: "strategy candidate references unknown citation keys: REC_9999",
+     details: %{unknown_keys: ["REC_9999"]}
+   }
+   ```
+7. Remaining limitations:
+   - the strategy provider is now live-capable through Instructor, but provider prompt tuning and environment-specific adapter selection remain intentionally narrow
+   - strategy extraction currently relies on deterministic post-processing of provider output rather than a second-stage human review workflow
+   - query surfaces return persisted specs/formulas, but no UI or LiveView inspection surface was added in this block
+
+LOOP_COMPLETE

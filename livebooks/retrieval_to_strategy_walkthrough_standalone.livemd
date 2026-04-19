@@ -1,0 +1,636 @@
+<!-- livebook:{"persist_outputs":false} -->
+
+# Retrieval To Strategy Walkthrough
+
+```elixir
+# Load the local umbrella apps, but do not start their supervision trees.
+# Starting applications here would boot Oban inside Livebook and require
+# oban_* tables to already exist in the notebook database.
+Mix.install(
+  [
+    {:research_core, path: Path.expand("../apps/research_core", __DIR__), env: :dev},
+    {:research_jobs, path: Path.expand("../apps/research_jobs", __DIR__), env: :dev},
+    {:research_store, path: Path.expand("../apps/research_store", __DIR__), env: :dev},
+    {:research_web, path: Path.expand("../apps/research_web", __DIR__), env: :dev}
+  ],
+  config_path: Path.expand("../config/config.exs", __DIR__),
+  lockfile: Path.expand("../mix.lock", __DIR__),
+  start_applications: false
+)
+
+```
+
+## Section
+
+This notebook exposes the whole path from theme normalization through retrieval, QA, synthesis, and final strategy normalization.
+
+The default flow is intentionally notebook-friendly and inspectable:
+
+* theme input stays explicit
+* query generation stays explicit
+* retrieval output stays explicit
+* raw-record bridge stays explicit
+* QA filtering and downgrades stay explicit
+* synthesis validation stays explicit
+* strategy formula and candidate normalization stay explicit
+
+Two execution modes are supported:
+
+* `:fixture` for a deterministic walkthrough with zero external dependencies
+* `:live` for a real search-plus-LLM pass using the credentials you inject below
+
+## Runtime
+
+Use a regular Livebook runtime.
+
+This notebook bootstraps the local umbrella apps through `Mix.install/2`, and the setup cell above
+intentionally keeps application startup disabled so notebook inspection does not accidentally boot
+`Oban`, `Repo`, or other runtime services.
+
+```elixir
+{:module, ResearchJobs.Livebook.Pipeline} =
+  Code.ensure_loaded(ResearchJobs.Livebook.Pipeline)
+
+{:module, ResearchJobs.Livebook.PipelineFixtures} =
+  Code.ensure_loaded(ResearchJobs.Livebook.PipelineFixtures)
+
+{:module, ResearchJobs.Synthesis.Livebook} =
+  Code.ensure_loaded(ResearchJobs.Synthesis.Livebook)
+
+{:module, ResearchJobs.Strategy.Livebook} =
+  Code.ensure_loaded(ResearchJobs.Strategy.Livebook)
+
+:ok
+```
+
+## HTTP Runtime
+
+In `:live` mode the notebook uses `Req` directly for retrieval and synthesis.
+
+Because the setup cell intentionally disabled full application startup, start the
+minimal HTTP client runtime explicitly here before any live retrieval or live LLM call.
+
+```elixir
+ResearchJobs.Livebook.Pipeline.ensure_runtime_apps_started()
+```
+
+## Credentials
+
+This notebook deliberately accepts credentials through a code cell because that is the requested workflow.
+
+In `:fixture` mode they are ignored.
+In `:live` mode you need:
+
+* at least one retrieval search API key
+* `OPENAI_API_KEY`
+* optional `OPENAI_API_URL` if you are targeting a custom OpenAI-compatible base URL
+
+```elixir
+credentials = %{
+  openai_api_key: "",
+  openai_api_url: "",
+  synthesis_llm_model: "gpt-4.1-mini",
+  strategy_llm_model: "gpt-5.4-mini",
+  serper_api_key: "",
+  brave_api_key: "",
+  tavily_api_key: "",
+  exa_api_key: "",
+  jina_api_key: ""
+}
+
+ResearchJobs.Strategy.Livebook.apply_credentials(credentials)
+```
+
+```elixir
+ResearchJobs.Strategy.Livebook.config_summary()
+```
+
+## Mode
+
+Start with `:fixture`.
+
+Switch to `:live` only after you have supplied real credentials.
+
+```elixir
+mode = :fixture
+
+theme_input =
+  case mode do
+    :fixture ->
+      ResearchJobs.Livebook.PipelineFixtures.theme_input()
+
+    :live ->
+      "prediction market calibration under stress"
+  end
+
+synthesis_profile_id = "literature_review_v1"
+
+synthesis_provider =
+  case mode do
+    :fixture -> ResearchJobs.Synthesis.Providers.Fake
+    :live -> ResearchJobs.Synthesis.Providers.OpenAICompatible
+  end
+
+formula_provider =
+  case mode do
+    :fixture -> ResearchJobs.Strategy.Providers.Fake
+    :live -> ResearchJobs.Strategy.Providers.Instructor
+  end
+
+strategy_provider =
+  case mode do
+    :fixture -> ResearchJobs.Strategy.Providers.Fake
+    :live -> ResearchJobs.Strategy.Providers.Instructor
+  end
+
+synthesis_provider_opts =
+  case mode do
+    :fixture ->
+      [content: ResearchJobs.Livebook.PipelineFixtures.synthesis_markdown()]
+
+    :live ->
+      []
+  end
+
+strategy_provider_opts =
+  case mode do
+    :fixture ->
+      ResearchJobs.Strategy.LivebookFixtures.fake_provider_opts()
+
+    :live ->
+      []
+  end
+
+%{
+  mode: mode,
+  theme_input: theme_input,
+  synthesis_profile_id: synthesis_profile_id,
+  synthesis_provider: synthesis_provider,
+  formula_provider: formula_provider,
+  strategy_provider: strategy_provider
+}
+```
+
+## Theme Normalization
+
+```elixir
+normalized_theme =
+  case mode do
+    :fixture ->
+      ResearchJobs.Livebook.PipelineFixtures.normalized_theme()
+
+    :live ->
+      ResearchJobs.Livebook.Pipeline.normalize_theme!(theme_input)
+  end
+
+normalized_theme
+```
+
+## Branch Expansion
+
+```elixir
+branches =
+  case mode do
+    :fixture ->
+      ResearchJobs.Livebook.PipelineFixtures.branches()
+
+    :live ->
+      ResearchJobs.Livebook.Pipeline.generate_branches(normalized_theme)
+  end
+
+Enum.map(branches, fn branch ->
+  %{
+    kind: branch.kind,
+    label: branch.label,
+    rationale: branch.rationale,
+    query_families: Enum.map(branch.query_families, & &1.kind)
+  }
+end)
+```
+
+## Query Catalog
+
+This is the inspection surface for branch-level filtering.
+
+In `:live` mode, edit the next cell to choose the exact query subset you want to run.
+
+```elixir
+query_rows =
+  case mode do
+    :fixture ->
+      ResearchJobs.Livebook.PipelineFixtures.query_rows()
+
+    :live ->
+      ResearchJobs.Livebook.Pipeline.query_rows(branches)
+  end
+
+query_rows
+```
+
+```elixir
+selected_queries =
+  case mode do
+    :fixture ->
+      ResearchJobs.Livebook.PipelineFixtures.queries()
+      |> Map.values()
+
+    :live ->
+      query_rows
+      |> Enum.filter(&(&1.branch_kind in [:direct, :analog, :method]))
+      |> Enum.map(& &1.query)
+  end
+
+Enum.map(selected_queries, fn query ->
+  %{
+    text: query.text,
+    branch_kind: query.branch_kind,
+    branch_label: query.branch_label,
+    scope_type: query.scope_type,
+    source_family: query.source_family
+  }
+end)
+```
+
+## Retrieval
+
+In `:fixture` mode this is deterministic.
+
+In `:live` mode this cell executes the configured retrieval adapters with your injected search credentials.
+
+```elixir
+retrieval_run =
+  case mode do
+    :fixture ->
+      ResearchJobs.Livebook.PipelineFixtures.retrieval_run()
+
+    :live ->
+      ResearchJobs.Livebook.Pipeline.run_retrieval(selected_queries, [])
+  end
+
+%{
+  id: retrieval_run.id,
+  search_request_count: length(retrieval_run.search_requests),
+  provider_result_count: length(retrieval_run.provider_results),
+  fetch_request_count: length(retrieval_run.fetch_requests),
+  provider_error_count: length(retrieval_run.provider_errors)
+}
+```
+
+```elixir
+retrieval_run.search_requests
+```
+
+```elixir
+Enum.map(retrieval_run.provider_results, fn result ->
+  %{
+    provider: result.provider,
+    query_text: result.request.query.text,
+    hit_count: length(result.hits),
+    hits:
+      Enum.map(result.hits, fn hit ->
+        %{
+          rank: hit.rank,
+          title: hit.title,
+          url: hit.url,
+          fetch_status: hit.fetch_status
+        }
+      end)
+  }
+end)
+```
+
+```elixir
+retrieval_run.provider_errors
+```
+
+## Raw Record Bridge
+
+This is the explicit handoff from retrieval output into the corpus QA input surface.
+
+```elixir
+raw_records =
+  case mode do
+    :fixture ->
+      ResearchJobs.Livebook.PipelineFixtures.raw_records()
+
+    :live ->
+      ResearchJobs.Livebook.Pipeline.build_raw_records(
+        retrieval_run,
+        normalized_theme,
+        branches
+      )
+  end
+
+Enum.map(raw_records, fn raw_record ->
+  %{
+    id: raw_record.id,
+    title: raw_record.search_hit.title,
+    branch_kind: raw_record.search_hit.query.branch_kind,
+    branch_label: raw_record.search_hit.query.branch_label,
+    formula_text: raw_record.raw_fields[:formula_text],
+    fetched?: not is_nil(raw_record.fetched_document)
+  }
+end)
+```
+
+## QA
+
+This stage is where accepted core, accepted analog, background, quarantine, and decision logs become explicit.
+
+```elixir
+qa_result =
+  case mode do
+    :fixture ->
+      ResearchJobs.Livebook.PipelineFixtures.qa_result()
+
+    :live ->
+      ResearchJobs.Livebook.Pipeline.run_qa(raw_records)
+  end
+
+%{
+  accepted_core: length(qa_result.accepted_core),
+  accepted_analog: length(qa_result.accepted_analog),
+  background: length(qa_result.background),
+  quarantine: length(qa_result.quarantine),
+  duplicate_groups: length(qa_result.duplicate_groups)
+}
+```
+
+```elixir
+%{
+  accepted_core: Enum.map(qa_result.accepted_core, &{&1.canonical_title, &1.formula_completeness_status}),
+  accepted_analog: Enum.map(qa_result.accepted_analog, &{&1.canonical_title, &1.formula_completeness_status}),
+  background: Enum.map(qa_result.background, &{&1.canonical_title, &1.formula_completeness_status}),
+  quarantine: Enum.map(qa_result.quarantine, &{&1.id, &1.reason_codes})
+}
+```
+
+```elixir
+qa_result.decision_log
+```
+
+## In-Memory Bundle
+
+This bundle is enough to drive synthesis without persisting a snapshot first.
+
+```elixir
+bundle =
+  case mode do
+    :fixture ->
+      ResearchJobs.Livebook.PipelineFixtures.bundle()
+
+    :live ->
+      ResearchJobs.Livebook.Pipeline.build_bundle(
+        normalized_theme,
+        branches,
+        retrieval_run,
+        qa_result,
+        label: normalized_theme.normalized_text
+      )
+  end
+
+bundle.snapshot
+```
+
+## Synthesis Input Package
+
+The notebook passes `raw_records` and `qa_result` here so provenance-derived exact formula text stays visible and reusable downstream.
+
+```elixir
+synthesis_package =
+  ResearchJobs.Synthesis.Livebook.build_input_package!(
+    bundle,
+    synthesis_profile_id,
+    raw_records: raw_records,
+    qa_result: qa_result
+  )
+
+%{
+  snapshot_id: synthesis_package.snapshot_id,
+  profile_id: synthesis_package.profile_id,
+  digest: synthesis_package.digest,
+  citation_keys: Enum.map(synthesis_package.citation_keys, & &1.key)
+}
+```
+
+```elixir
+%{
+  accepted_core:
+    Enum.map(synthesis_package.accepted_core, fn record ->
+      %{
+        citation_key: record.citation_key,
+        title: record.title,
+        formula: record.formula
+      }
+    end),
+  accepted_analog:
+    Enum.map(synthesis_package.accepted_analog, fn record ->
+      %{
+        citation_key: record.citation_key,
+        title: record.title,
+        formula: record.formula
+      }
+    end)
+}
+```
+
+## Synthesis Request
+
+```elixir
+synthesis_request_spec =
+  ResearchJobs.Synthesis.Livebook.build_request(
+    synthesis_profile_id,
+    synthesis_package
+  )
+
+%{
+  profile_id: synthesis_request_spec.profile_id,
+  section_order: synthesis_request_spec.section_order,
+  package_digest: synthesis_request_spec.package_digest
+}
+```
+
+```elixir
+synthesis_request_spec.prompt
+```
+
+## Synthesis Response
+
+With `Fake` this stays deterministic.
+
+With `OpenAICompatible` this is the first live LLM boundary in the notebook.
+
+```elixir
+{:ok, synthesis_provider_response} =
+  ResearchJobs.Synthesis.Livebook.run_provider(
+    synthesis_request_spec,
+    provider: synthesis_provider,
+    provider_opts: synthesis_provider_opts
+  )
+
+%{
+  provider: synthesis_provider_response.provider,
+  model: synthesis_provider_response.model,
+  response_id: synthesis_provider_response.response_id,
+  response_hash: synthesis_provider_response.response_hash
+}
+```
+
+```elixir
+synthesis_provider_response.content
+```
+
+## Synthesis Validation
+
+```elixir
+synthesis_validation =
+  ResearchJobs.Synthesis.Livebook.validate(
+    synthesis_profile_id,
+    synthesis_package,
+    synthesis_provider_response.content
+  )
+
+%{
+  valid?: synthesis_validation.valid?,
+  cited_keys: synthesis_validation.cited_keys,
+  structural_errors: synthesis_validation.structural_errors,
+  citation_errors: synthesis_validation.citation_errors,
+  formula_errors: synthesis_validation.formula_errors
+}
+```
+
+## Synthesis Context
+
+This is the explicit in-memory boundary that the downstream strategy stage consumes.
+
+```elixir
+synthesis_context =
+  ResearchJobs.Synthesis.Livebook.build_context(
+    bundle,
+    synthesis_profile_id,
+    synthesis_package,
+    synthesis_request_spec,
+    synthesis_provider_response,
+    synthesis_validation
+  )
+
+synthesis_context.synthesis_run
+```
+
+```elixir
+{:ok, strategy_context} =
+  ResearchJobs.Synthesis.Livebook.build_strategy_context(synthesis_context)
+
+strategy_context.validation_result
+```
+
+## Strategy Input Package
+
+```elixir
+strategy_package =
+  ResearchJobs.Strategy.Livebook.build_input_package!(strategy_context)
+
+%{
+  corpus_snapshot_id: strategy_package.corpus_snapshot_id,
+  synthesis_run_id: strategy_package.synthesis_run_id,
+  synthesis_artifact_id: strategy_package.synthesis_artifact_id,
+  digest: strategy_package.digest
+}
+```
+
+```elixir
+Enum.map(strategy_package.report_sections, fn section ->
+  %{
+    id: section.id,
+    heading: section.heading,
+    cited_keys: section.cited_keys
+  }
+end)
+```
+
+## Formula Extraction
+
+```elixir
+formula_request_spec =
+  ResearchJobs.Strategy.Livebook.build_formula_request(strategy_package)
+
+formula_request_spec.prompt
+```
+
+```elixir
+formula_step =
+  ResearchJobs.Strategy.Livebook.run_formula_extraction!(
+    strategy_package,
+    provider: formula_provider,
+    provider_opts: strategy_provider_opts
+  )
+
+formula_step.raw_candidates
+```
+
+```elixir
+formula_normalization =
+  ResearchJobs.Strategy.Livebook.normalize_formula_candidates(
+    strategy_package,
+    formula_step.raw_candidates
+  )
+
+%{
+  accepted: formula_normalization.accepted,
+  rejected: formula_normalization.rejected
+}
+```
+
+## Strategy Candidate Extraction
+
+```elixir
+strategy_request_spec =
+  ResearchJobs.Strategy.Livebook.build_strategy_request(
+    strategy_package,
+    formula_normalization.accepted
+  )
+
+strategy_request_spec.prompt
+```
+
+```elixir
+strategy_step =
+  ResearchJobs.Strategy.Livebook.run_strategy_extraction!(
+    strategy_package,
+    formula_normalization.accepted,
+    provider: strategy_provider,
+    provider_opts: strategy_provider_opts
+  )
+
+strategy_step.raw_candidates
+```
+
+## Final Normalization
+
+```elixir
+normalized_strategy_output =
+  ResearchJobs.Strategy.Livebook.normalize!(
+    strategy_package,
+    formula_step.raw_candidates,
+    strategy_step.raw_candidates
+  )
+
+%{
+  formulas: normalized_strategy_output.formulas,
+  specs:
+    Enum.map(normalized_strategy_output.specs, fn spec ->
+      %{
+        title: spec.title,
+        readiness: spec.readiness,
+        category: spec.category
+      }
+    end),
+  rejected_candidates: normalized_strategy_output.validation.rejected_candidates
+}
+```
+
+## Notes
+
+* The notebook path above is intentionally in-memory and stepwise.
+* That keeps the filters and downgrades visible.
+* If you later want full persistence from the notebook, wire explicit store steps after retrieval and QA instead of collapsing back to one opaque runner call.

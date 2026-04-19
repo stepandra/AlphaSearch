@@ -26,6 +26,7 @@ defmodule ResearchJobs.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:instructor, "~> 0.1.0"},
       {:oban, "~> 2.21"},
       {:nimble_options, "~> 1.1"},
       {:req, "~> 0.5"},

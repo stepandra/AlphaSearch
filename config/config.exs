@@ -61,6 +61,34 @@ config :research_jobs, ResearchJobs.Retrieval.ProviderConfig,
     ]
   ]
 
+config :research_jobs, ResearchJobs.Synthesis.ProviderConfig,
+  default_provider: ResearchJobs.Synthesis.Providers.OpenAICompatible,
+  llm: [
+    api_key_env: "OPENAI_API_KEY",
+    api_url: "https://api.openai.com",
+    api_url_env: "OPENAI_API_URL",
+    api_path: "/v1/chat/completions",
+    model_env: "SYNTHESIS_LLM_MODEL",
+    default_model: "gpt-4.1-mini",
+    temperature: 0.2,
+    http_options: [receive_timeout: 120_000]
+  ]
+
+config :research_jobs, ResearchJobs.Strategy.ProviderConfig,
+  default_provider: ResearchJobs.Strategy.Providers.Instructor,
+  llm: [
+    adapter: Instructor.Adapters.OpenAI,
+    api_key_env: "OPENAI_API_KEY",
+    api_url: "https://api.openai.com",
+    api_url_env: "OPENAI_API_URL",
+    api_path: "/v1/chat/completions",
+    model_env: "STRATEGY_LLM_MODEL",
+    default_model: "gpt-4.1-mini",
+    mode: :json_schema,
+    max_retries: 1,
+    http_options: [receive_timeout: 60_000]
+  ]
+
 config :research_observability,
   service_name: "research_platform",
   telemetry_poller_period: 10_000,

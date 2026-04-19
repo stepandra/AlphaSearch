@@ -1,0 +1,393 @@
+<!-- livebook:{"persist_outputs":true} -->
+
+# Strategy Spec Builder Walkthrough
+
+This notebook exposes the strategy-spec builder block step by step instead of hiding everything behind a single runner call.
+
+You can use it in two modes:
+
+- `:fixture` for a deterministic walkthrough that never depends on external APIs
+- `:persisted_snapshot` for a real snapshot plus an already validated synthesis artifact stored in `research_store`
+
+This notebook does **not** pretend that a full live `search -> synthesis -> strategy` chain exists here.
+The repo currently has live retrieval adapters and a live strategy extraction provider, but synthesis still requires an existing validated artifact or manual fixture content.
+
+## Runtime
+
+Open this file in Livebook and connect it to a Mix-aware runtime rooted at this repository.  
+If the first code cell fails, the runtime is wrong and the `Research*` modules are not loaded.
+
+```elixir
+{:module, ResearchJobs.Strategy.Livebook} = Code.ensure_loaded(ResearchJobs.Strategy.Livebook)
+{:module, ResearchJobs.Strategy.LivebookFixtures} =
+  Code.ensure_loaded(ResearchJobs.Strategy.LivebookFixtures)
+
+:ok
+```
+
+## Credentials
+
+This cell intentionally allows credentials through notebook code because that is the workflow requested here.  
+If you later want a safer version, move the same values into Livebook Secrets and keep the cell shape unchanged.
+
+Search credentials are included so the same runtime can also be reused for upstream retrieval notebooks, even though this specific walkthrough only needs them if you branch into your own custom cells.
+
+```elixir
+credentials = %{
+  openai_api_key: "",
+  openai_api_url: "https://api.openai.com",
+  strategy_llm_model: "gpt-4.1-mini",
+  serper_api_key: "",
+  brave_api_key: "",
+  tavily_api_key: "",
+  exa_api_key: "",
+  jina_api_key: ""
+}
+
+ResearchJobs.Strategy.Livebook.apply_credentials(credentials)
+```
+
+```elixir
+ResearchJobs.Strategy.Livebook.config_summary()
+```
+
+## Execution Mode
+
+Use `:fixture` first to inspect every intermediate structure without depending on your database state or a live provider.
+
+Switch to `:persisted_snapshot` only when you already have:
+
+- a persisted `corpus_snapshot_id`
+- a validated synthesis artifact for the selected synthesis profile
+
+For live strategy extraction, switch both providers to `ResearchJobs.Strategy.Providers.Instructor` and keep `provider_opts = []`.
+
+```elixir
+mode = :fixture
+
+snapshot_id = nil
+synthesis_profile_id = "literature_review_v1"
+
+formula_provider = ResearchJobs.Strategy.Providers.Fake
+strategy_provider = ResearchJobs.Strategy.Providers.Fake
+
+provider_opts = ResearchJobs.Strategy.LivebookFixtures.fake_provider_opts()
+
+%{
+  mode: mode,
+  snapshot_id: snapshot_id,
+  synthesis_profile_id: synthesis_profile_id,
+  formula_provider: formula_provider,
+  strategy_provider: strategy_provider
+}
+```
+
+## Load Context
+
+In fixture mode this returns pure in-memory data.  
+In persisted mode it loads:
+
+- the finalized snapshot bundle
+- the successful validated synthesis artifact
+- the persisted synthesis run and validation result
+
+```elixir
+context =
+  case mode do
+    :fixture ->
+      ResearchJobs.Strategy.LivebookFixtures.context()
+
+    :persisted_snapshot ->
+      ResearchJobs.Strategy.Livebook.load_persisted_context!(
+        snapshot_id,
+        synthesis_profile_id
+      )
+  end
+
+Map.keys(context)
+```
+
+```elixir
+%{
+  snapshot: context.bundle.snapshot,
+  synthesis_run_id: context.synthesis_run.id,
+  synthesis_profile_id: context.synthesis_run.profile_id,
+  artifact_id: context.artifact.id,
+  validation: %{
+    valid?: context.validation_result.valid?,
+    cited_keys: context.validation_result.cited_keys,
+    allowed_keys: context.validation_result.allowed_keys
+  }
+}
+```
+
+```elixir
+context.artifact.content
+```
+
+## Build Strategy Input Package
+
+This is the deterministic boundary from:
+
+- finalized snapshot
+- validated synthesis artifact
+
+to the extraction-ready `ResearchCore.Strategy.InputPackage`.
+
+```elixir
+package = ResearchJobs.Strategy.Livebook.build_input_package!(context)
+
+%{
+  corpus_snapshot_id: package.corpus_snapshot_id,
+  synthesis_run_id: package.synthesis_run_id,
+  synthesis_artifact_id: package.synthesis_artifact_id,
+  digest: package.digest
+}
+```
+
+```elixir
+Enum.map(package.report_sections, fn section ->
+  %{
+    id: section.id,
+    heading: section.heading,
+    index: section.index,
+    cited_keys: section.cited_keys
+  }
+end)
+```
+
+```elixir
+package.record_formula_availability
+```
+
+```elixir
+package.resolved_records
+```
+
+```elixir
+package.provenance_summaries
+```
+
+## Formula Extraction Request
+
+This request is the narrow provider boundary for formula extraction only.
+
+```elixir
+formula_request_spec = ResearchJobs.Strategy.Livebook.build_formula_request(package)
+
+%{
+  phase: formula_request_spec.phase,
+  objective: formula_request_spec.objective,
+  required_fields: formula_request_spec.required_fields,
+  optional_fields: formula_request_spec.optional_fields
+}
+```
+
+```elixir
+formula_request_spec.sections
+```
+
+```elixir
+formula_request_spec.records
+```
+
+```elixir
+formula_request_spec.prompt
+```
+
+## Formula Extraction Response
+
+With the fake provider this is deterministic.  
+With the Instructor provider this is the first live LLM boundary for the notebook.
+
+```elixir
+formula_step =
+  ResearchJobs.Strategy.Livebook.run_formula_extraction!(
+    package,
+    provider: formula_provider,
+    provider_opts: provider_opts
+  )
+
+%{
+  provider: formula_step.provider_response.provider,
+  model: formula_step.provider_response.model,
+  phase: formula_step.provider_response.phase,
+  request_hash: formula_step.provider_response.request_hash,
+  response_hash: formula_step.provider_response.response_hash
+}
+```
+
+```elixir
+formula_step.raw_candidates
+```
+
+## Formula Normalization
+
+This is where exact vs partial, provenance, and citation validity become explicit.
+
+```elixir
+formula_normalization =
+  ResearchJobs.Strategy.Livebook.normalize_formula_candidates(
+    package,
+    formula_step.raw_candidates
+  )
+
+%{
+  accepted_count: length(formula_normalization.accepted),
+  rejected_count: length(formula_normalization.rejected)
+}
+```
+
+```elixir
+formula_normalization.accepted
+```
+
+```elixir
+formula_normalization.rejected
+```
+
+```elixir
+accepted_formulas = formula_normalization.accepted
+```
+
+## Strategy Extraction Request
+
+The strategy request includes the normalized formulas from the previous step.
+
+```elixir
+strategy_request_spec =
+  ResearchJobs.Strategy.Livebook.build_strategy_request(
+    package,
+    accepted_formulas
+  )
+
+%{
+  phase: strategy_request_spec.phase,
+  objective: strategy_request_spec.objective,
+  required_fields: strategy_request_spec.required_fields,
+  optional_fields: strategy_request_spec.optional_fields
+}
+```
+
+```elixir
+strategy_request_spec.formulas
+```
+
+```elixir
+strategy_request_spec.prompt
+```
+
+## Strategy Extraction Response
+
+```elixir
+strategy_step =
+  ResearchJobs.Strategy.Livebook.run_strategy_extraction!(
+    package,
+    accepted_formulas,
+    provider: strategy_provider,
+    provider_opts: provider_opts
+  )
+
+%{
+  provider: strategy_step.provider_response.provider,
+  model: strategy_step.provider_response.model,
+  phase: strategy_step.provider_response.phase,
+  request_hash: strategy_step.provider_response.request_hash,
+  response_hash: strategy_step.provider_response.response_hash
+}
+```
+
+```elixir
+strategy_step.raw_candidates
+```
+
+## Full Normalization And Validation
+
+This step combines:
+
+- normalized formulas
+- normalized strategy candidates
+- duplicate suppression
+- readiness and actionability classification
+- validation output
+
+```elixir
+normalized =
+  ResearchJobs.Strategy.Livebook.normalize!(
+    package,
+    formula_step.raw_candidates,
+    strategy_step.raw_candidates
+  )
+
+%{
+  formula_count: length(normalized.formulas),
+  candidate_count: length(normalized.candidates),
+  spec_count: length(normalized.specs),
+  validation_valid?: normalized.validation.valid?
+}
+```
+
+```elixir
+normalized.formulas
+```
+
+```elixir
+normalized.candidates
+```
+
+```elixir
+normalized.specs
+```
+
+```elixir
+normalized.validation
+```
+
+## Optional Persisted Run
+
+This final cell is intentionally optional.
+
+Use it only in `:persisted_snapshot` mode when you want the strategy extraction run, formulas, specs, and validation result written to `research_store`.
+
+```elixir
+persist_result =
+  case mode do
+    :persisted_snapshot ->
+      ResearchJobs.Strategy.Livebook.persist_strategy_run(
+        snapshot_id,
+        synthesis_profile_id,
+        provider: strategy_provider,
+        provider_opts: provider_opts
+      )
+
+    :fixture ->
+      {:skipped, :fixture_mode}
+  end
+```
+
+```elixir
+case {mode, persist_result} do
+  {:persisted_snapshot, {:ok, run}} ->
+    %{
+      run_id: run.id,
+      state: run.state,
+      strategy_spec_ids: Enum.map(run.strategy_specs, & &1.id),
+      ready_for_snapshot:
+        Enum.map(
+          ResearchStore.ready_strategy_specs_for_snapshot(snapshot_id),
+          &%{id: &1.id, title: &1.title, readiness: &1.readiness}
+        )
+    }
+
+  {:persisted_snapshot, {:error, run}} ->
+    %{
+      run_id: run.id,
+      state: run.state,
+      provider_failure: run.provider_failure,
+      validation_result: run.validation_result
+    }
+
+  {:fixture, {:skipped, :fixture_mode}} ->
+    %{skipped: :fixture_mode}
+end
+```

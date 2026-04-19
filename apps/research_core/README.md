@@ -1,21 +1,21 @@
 # ResearchCore
 
-**TODO: Add description**
+`research_core` owns the pure domain model and deterministic logic for the research pipeline.
 
-## Installation
+## Synthesis Modules
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `research_core` to your list of dependencies in `mix.exs`:
+The synthesis/report builder lives here as pure, inspectable code:
 
-```elixir
-def deps do
-  [
-    {:research_core, "~> 0.1.0"}
-  ]
-end
-```
+- `ResearchCore.Synthesis.Profile` defines explicit versioned report profiles
+- `ResearchCore.Synthesis.InputBuilder` converts finalized snapshot bundles into deterministic input packages
+- `ResearchCore.Synthesis.PromptBuilder` builds inspectable request specs
+- `ResearchCore.Synthesis.Validator` enforces structural, citation, and formula guardrails
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/research_core>.
+## Guarantees
 
+- stable citation keys for packaged records
+- no hidden provider-specific prompt state inside the pure core layer
+- validation happens before a report artifact can be accepted downstream
+- report profiles stay explicit and versioned rather than generic
+
+See [docs/synthesis_report_builder.md](../../docs/synthesis_report_builder.md) for the end-to-end report-building flow.
