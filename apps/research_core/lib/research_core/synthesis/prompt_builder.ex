@@ -46,9 +46,20 @@ defmodule ResearchCore.Synthesis.PromptBuilder do
     Output requirements:
     - Return markdown only.
     - Use the exact top-level `##` headings listed below, in order.
-    - Cite only with bracketed snapshot keys like `[REC_0001]` or `[REC_0001, REC_0002]`.
+    - Cite only with bracketed snapshot keys like `#{citation_example(profile, 1)}` or `#{citation_pair_example(profile)}`.
     - Do not cite any source outside the provided package.
     """
+  end
+
+  defp citation_pair_example(profile) do
+    "[#{citation_key_example(profile, 1)}, #{citation_key_example(profile, 2)}]"
+  end
+
+  defp citation_example(profile, ordinal), do: "[#{citation_key_example(profile, ordinal)}]"
+
+  defp citation_key_example(profile, ordinal) do
+    profile.citation_key_prefix <>
+      String.pad_leading(Integer.to_string(ordinal), profile.citation_key_width, "0")
   end
 
   defp section_rules(profile) do

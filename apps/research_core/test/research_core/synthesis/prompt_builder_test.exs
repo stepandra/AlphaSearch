@@ -50,6 +50,39 @@ defmodule ResearchCore.Synthesis.PromptBuilderTest do
     assert request_spec.prompt =~ "Do not generate trading hypotheses"
   end
 
+  test "renders citation examples from the profile key contract" do
+    profile = %{
+      ResearchCore.Synthesis.profile!("literature_review_v1")
+      | citation_key_prefix: "SRC-",
+        citation_key_width: 3
+    }
+
+    bundle = %{
+      snapshot: %{
+        id: "snapshot-1",
+        label: "prediction-market-calibration",
+        finalized_at: ~U[2026-03-30 10:00:00Z],
+        normalized_theme_ids: ["theme-1"],
+        branch_ids: ["branch-1"],
+        retrieval_run_ids: ["run-1"]
+      },
+      accepted_core: [record("canon-core", "Calibration Under Stress", :exact)],
+      accepted_analog: [],
+      background: [],
+      quarantine: []
+    }
+
+    provenance = %{
+      "canon-core" => %{raw_records: [%{raw_fields: %{"formula_text" => "score = wins / total"}}]}
+    }
+
+    {:ok, package} = InputBuilder.build(profile, bundle, provenance_summaries: provenance)
+    request_spec = PromptBuilder.build(profile, package)
+
+    assert request_spec.prompt =~ "like `[SRC-001]` or `[SRC-001, SRC-002]`"
+    refute request_spec.prompt =~ "like `[REC_0001]`"
+  end
+
   defp record(id, title, formula_status) do
     %CanonicalRecord{
       id: id,
