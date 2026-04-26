@@ -72,7 +72,17 @@ defmodule ResearchJobs.Strategy.RunnerTest do
 
     assert run.state == :validation_failed
     refute run.validation_result.valid?
-    assert [%{type: :unknown_citation_key, severity: :fatal}] = run.validation_result.fatal_errors
+
+    assert Enum.any?(
+             run.validation_result.fatal_errors,
+             &(&1.type == :unknown_citation_key and &1.severity == :fatal)
+           )
+
+    assert Enum.any?(
+             run.validation_result.fatal_errors,
+             &(&1.type == :no_accepted_strategy_specs and &1.severity == :fatal)
+           )
+
     assert run.strategy_specs == []
 
     assert %ResearchCore.Strategy.ValidationResult{} =
