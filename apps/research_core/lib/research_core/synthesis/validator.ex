@@ -5,14 +5,13 @@ defmodule ResearchCore.Synthesis.Validator do
 
   alias ResearchCore.Synthesis.{InputPackage, Profile, ValidationResult}
 
-  @citation_regex ~r/REC_\d{4}/
   @formula_regex ~r/[=<>±×÷\/*^]/
 
   @spec validate(Profile.t(), InputPackage.t(), String.t()) :: ValidationResult.t()
   def validate(%Profile{} = profile, %InputPackage{} = package, markdown)
       when is_binary(markdown) do
     headings = extract_headings(markdown)
-    cited_keys = extract_cited_keys(markdown)
+    cited_keys = extract_cited_keys(profile, markdown)
     allowed_keys = allowed_keys(package)
 
     structural_errors = structural_errors(profile, package, markdown, headings)
@@ -43,7 +42,17 @@ defmodule ResearchCore.Synthesis.Validator do
 
   @spec extract_cited_keys(String.t()) :: [String.t()]
   def extract_cited_keys(markdown) do
-    @citation_regex
+    default_citation_regex()
+    |> Regex.scan(markdown)
+    |> List.flatten()
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  @spec extract_cited_keys(Profile.t(), String.t()) :: [String.t()]
+  def extract_cited_keys(%Profile{} = profile, markdown) do
+    profile
+    |> citation_regex()
     |> Regex.scan(markdown)
     |> List.flatten()
     |> Enum.uniq()
@@ -94,7 +103,7 @@ defmodule ResearchCore.Synthesis.Validator do
     |> String.split("\n")
     |> Enum.with_index(1)
     |> Enum.flat_map(fn {line, line_number} ->
-      line_keys = extract_cited_keys(line)
+      line_keys = extract_cited_keys(profile, line)
 
       cond do
         line_keys == [] ->
@@ -216,6 +225,12 @@ defmodule ResearchCore.Synthesis.Validator do
     package.citation_keys
     |> Enum.map(& &1.key)
     |> Enum.sort()
+  end
+
+  defp default_citation_regex, do: ~r/REC_\d{4}/
+
+  defp citation_regex(%Profile{citation_key_prefix: prefix, citation_key_width: width}) do
+    Regex.compile!(Regex.escape(prefix) <> "\\d{" <> Integer.to_string(width) <> "}")
   end
 
   defp maybe_add(errors, true, error), do: errors ++ [error]

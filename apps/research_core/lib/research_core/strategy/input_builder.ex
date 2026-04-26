@@ -28,8 +28,10 @@ defmodule ResearchCore.Strategy.InputBuilder do
       ) do
     with :ok <- finalized_snapshot(snapshot),
          :ok <- validated_artifact(snapshot, synthesis_run, artifact, validation_result),
-         {:ok, report_sections} <- parse_sections(artifact),
-         {:ok, resolved_records} <- resolve_records(bundle, synthesis_run, report_sections),
+         {:ok, profile} <- Synthesis.profile(Helpers.fetch(synthesis_run, :profile_id)),
+         {:ok, report_sections} <- parse_sections(artifact, profile),
+         {:ok, resolved_records} <-
+           resolve_records(bundle, synthesis_run, profile, report_sections),
          do: package(bundle, synthesis_run, artifact, report_sections, resolved_records, opts)
   end
 
@@ -55,7 +57,7 @@ defmodule ResearchCore.Strategy.InputBuilder do
     end
   end
 
-  defp parse_sections(artifact) do
+  defp parse_sections(artifact, profile) do
     sections =
       artifact
       |> Helpers.fetch(:content, "")
@@ -67,7 +69,12 @@ defmodule ResearchCore.Strategy.InputBuilder do
           heading: heading,
           body: String.trim(body),
           index: index,
-          cited_keys: Helpers.extract_cited_keys(body)
+          cited_keys:
+            Helpers.extract_cited_keys(
+              body,
+              profile.citation_key_prefix,
+              profile.citation_key_width
+            )
         }
       end)
 
@@ -81,7 +88,7 @@ defmodule ResearchCore.Strategy.InputBuilder do
     end
   end
 
-  defp resolve_records(bundle, synthesis_run, report_sections) do
+  defp resolve_records(bundle, synthesis_run, profile, report_sections) do
     cited_keys =
       report_sections
       |> Enum.flat_map(& &1.cited_keys)
@@ -90,8 +97,7 @@ defmodule ResearchCore.Strategy.InputBuilder do
 
     snapshot_records = snapshot_records_by_id(bundle)
 
-    with {:ok, profile} <- Synthesis.profile(Helpers.fetch(synthesis_run, :profile_id)),
-         citation_lookup <- citation_lookup(snapshot_records, profile),
+    with citation_lookup <- citation_lookup(snapshot_records, profile),
          citation_key_lookup <- invert_citation_lookup(citation_lookup),
          formula_lookup <- synthesis_formula_lookup(synthesis_run),
          {:ok, records} <-

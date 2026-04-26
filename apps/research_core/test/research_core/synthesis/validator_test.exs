@@ -95,6 +95,49 @@ defmodule ResearchCore.Synthesis.ValidatorTest do
     assert [%{type: :non_exact_formula_reference}] = result.formula_errors
   end
 
+  test "extracts and validates citations using the profile key contract" do
+    profile = %{
+      ResearchCore.Synthesis.profile!("literature_review_v1")
+      | citation_key_prefix: "SRC-",
+        citation_key_width: 3
+    }
+
+    {:ok, package} = InputBuilder.build(profile, bundle(), provenance_summaries: provenance())
+
+    report = """
+    ## Executive Summary
+    Calibration improves under stress [SRC-001].
+
+    ## Ranked Important Papers and Findings
+    Important [SRC-001].
+
+    ## Taxonomy and Thematic Grouping
+    Direct evidence [SRC-001]. Analog evidence [SRC-002].
+
+    ## Reusable Formulas
+    - score = wins / total [SRC-001]
+    - Unknown imported claim [SRC-999]
+
+    ## Open Gaps
+    Venue coverage is still thin [SRC-001, SRC-002].
+
+    ## Next Prototype Recommendations
+    Build a calibration dashboard prototype [SRC-001].
+
+    ## Evidence Appendix
+    - SRC-001 Calibration Under Stress
+    - SRC-002 Options Market Analog
+    """
+
+    result = Validator.validate(profile, package, report)
+
+    refute result.valid?
+    assert result.cited_keys == ["SRC-001", "SRC-002", "SRC-999"]
+
+    assert [%{type: :unknown_citation_key, details: %{citation_key: "SRC-999"}}] =
+             result.citation_errors
+  end
+
   defp bundle do
     %{
       snapshot: %{

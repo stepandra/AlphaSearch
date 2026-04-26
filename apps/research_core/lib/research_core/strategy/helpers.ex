@@ -1,7 +1,6 @@
 defmodule ResearchCore.Strategy.Helpers do
   @moduledoc false
 
-  @citation_regex ~r/REC_\d{4}/
   @known_sections %{
     "taxonomy" => :taxonomy_and_thematic_grouping,
     "taxonomy_and_thematic_grouping" => :taxonomy_and_thematic_grouping,
@@ -71,7 +70,13 @@ defmodule ResearchCore.Strategy.Helpers do
 
   @spec extract_cited_keys(String.t()) :: [String.t()]
   def extract_cited_keys(markdown) when is_binary(markdown) do
-    @citation_regex
+    extract_cited_keys(markdown, "REC_", 4)
+  end
+
+  @spec extract_cited_keys(String.t(), String.t(), pos_integer()) :: [String.t()]
+  def extract_cited_keys(markdown, prefix, width)
+      when is_binary(markdown) and is_binary(prefix) and is_integer(width) and width > 0 do
+    citation_regex(prefix, width)
     |> Regex.scan(markdown)
     |> List.flatten()
     |> Enum.uniq()
@@ -101,4 +106,8 @@ defmodule ResearchCore.Strategy.Helpers do
   def normalize_notes(_value), do: []
 
   defp canonical_section_id(value), do: Map.get(@known_sections, value, :unknown_section)
+
+  defp citation_regex(prefix, width) do
+    Regex.compile!(Regex.escape(prefix) <> "\\d{" <> Integer.to_string(width) <> "}")
+  end
 end
