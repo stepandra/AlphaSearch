@@ -7,6 +7,7 @@ defmodule ResearchJobs.Strategy.Providers.Fake do
 
   alias ResearchJobs.Strategy.{ProviderError, ProviderResponse}
   alias ResearchJobs.Strategy.Models.{Caster, FormulaExtractionBatch, StrategyExtractionBatch}
+  alias ResearchCore.Canonical
 
   @impl true
   def extract_formulas(request_spec, opts) do
@@ -21,7 +22,7 @@ defmodule ResearchJobs.Strategy.Providers.Fake do
          request_id: Keyword.get(opts, :formula_request_id, "fake-formula-request"),
          response_id: Keyword.get(opts, :formula_response_id, "fake-formula-response"),
          request_hash: Keyword.get(opts, :formula_request_hash, hash(request_spec)),
-         response_hash: Keyword.get(opts, :formula_response_hash, hash(inspect(content))),
+         response_hash: Keyword.get(opts, :formula_response_hash, hash(content)),
          metadata: %{phase: "formula_extraction"}
        }}
     else
@@ -55,7 +56,7 @@ defmodule ResearchJobs.Strategy.Providers.Fake do
          request_id: Keyword.get(opts, :strategy_request_id, "fake-strategy-request"),
          response_id: Keyword.get(opts, :strategy_response_id, "fake-strategy-response"),
          request_hash: Keyword.get(opts, :strategy_request_hash, hash(request_spec)),
-         response_hash: Keyword.get(opts, :strategy_response_hash, hash(inspect(content))),
+         response_hash: Keyword.get(opts, :strategy_response_hash, hash(content)),
          metadata: %{phase: "strategy_extraction"}
        }}
     else
@@ -114,7 +115,6 @@ defmodule ResearchJobs.Strategy.Providers.Fake do
   defp hydrate_strategy_formula_refs(strategy, _formula_ids), do: strategy
 
   defp hash(value) do
-    :crypto.hash(:sha256, inspect(value))
-    |> Base.encode16(case: :lower)
+    Canonical.hash(value)
   end
 end

@@ -9,7 +9,8 @@ defmodule ResearchCore.Strategy.StrategyPipelineTest do
     CandidateNormalizer,
     DuplicateSuppressor,
     FormulaNormalizer,
-    InputBuilder
+    InputBuilder,
+    Validator
   }
 
   alias ResearchCore.Synthesis.ValidationResult
@@ -144,6 +145,26 @@ defmodule ResearchCore.Strategy.StrategyPipelineTest do
 
     assert [%{type: :ambiguous_formula_precision}, %{type: :unlinked_formula_provenance}] =
              result.rejected
+  end
+
+  test "rejects exact formulas that only appear in synthesis text without exact record formula text" do
+    package = input_package_fixture()
+
+    result =
+      FormulaNormalizer.normalize(package, [
+        %{
+          formula_text: "liquidity penalty exists but is not disclosed",
+          exact?: true,
+          partial?: false,
+          blocked?: false,
+          role: :execution,
+          source_section_ids: ["open_gaps"],
+          supporting_citation_keys: ["REC_0002"]
+        }
+      ])
+
+    assert result.accepted == []
+    assert [%{type: :non_exact_formula_reference, severity: :fatal}] = result.rejected
   end
 
   test "does not silently upgrade linked-evidence formulas to exact when the synthesis text is still ambiguous" do
@@ -300,6 +321,30 @@ defmodule ResearchCore.Strategy.StrategyPipelineTest do
 
     assert [%{type: :unsupported_candidate, severity: :warning}] =
              normalized.validation.rejected_candidates
+
+    assert normalized.validation.valid?
+    assert normalized.validation.fatal_errors == []
+  end
+
+  test "strategy validation fails closed on fatal rejects and empty accepted outputs" do
+    fatal_rejection = %{
+      type: :unknown_citation_key,
+      message: "formula references unknown citation keys: REC_9999",
+      severity: :fatal,
+      details: %{unknown_keys: ["REC_9999"]}
+    }
+
+    validation = Validator.validate([], [], [fatal_rejection], [], [])
+
+    refute validation.valid?
+
+    assert [
+             %{type: :unknown_citation_key, severity: :fatal},
+             %{type: :no_accepted_formulas, severity: :fatal},
+             %{type: :no_accepted_strategy_specs, severity: :fatal}
+           ] = validation.fatal_errors
+
+    assert validation.warnings == []
   end
 
   test "downgrades incomplete and analog candidates instead of surfacing them as ready" do

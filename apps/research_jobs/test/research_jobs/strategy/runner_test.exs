@@ -50,11 +50,11 @@ defmodule ResearchJobs.Strategy.RunnerTest do
              ResearchStore.ready_strategy_specs_for_snapshot(snapshot.id)
   end
 
-  test "completes the run while rejecting phantom-cited strategies and preserving accepted artifacts" do
+  test "marks the run validation_failed when strategies cite phantom evidence" do
     snapshot = persisted_snapshot_fixture()
     assert {:ok, _synthesis_run} = persisted_synthesis_fixture(snapshot.id)
 
-    assert {:ok, run} =
+    assert {:error, run} =
              Runner.run(snapshot.id, "literature_review_v1",
                provider: Fake,
                provider_opts: [
@@ -70,23 +70,20 @@ defmodule ResearchJobs.Strategy.RunnerTest do
                ]
              )
 
-    assert run.state == :completed
-    assert [%ResearchCore.Strategy.FormulaCandidate{}] = run.formulas
+    assert run.state == :validation_failed
+    refute run.validation_result.valid?
+    assert [%{type: :unknown_citation_key, severity: :fatal}] = run.validation_result.fatal_errors
     assert run.strategy_specs == []
 
-    assert Enum.any?(
-             run.validation_result.warnings,
-             &(&1.type == :unknown_citation_key and &1.severity == :warning)
-           )
-
-    assert ResearchStore.strategy_validation_failures(run.id) == nil
+    assert %ResearchCore.Strategy.ValidationResult{} =
+             ResearchStore.strategy_validation_failures(run.id)
   end
 
-  test "accepts honest empty extraction results without forcing hallucinated formulas or strategies" do
+  test "marks honest empty extraction results validation_failed instead of completing blank output" do
     snapshot = persisted_snapshot_fixture()
     assert {:ok, _synthesis_run} = persisted_synthesis_fixture(snapshot.id)
 
-    assert {:ok, run} =
+    assert {:error, run} =
              Runner.run(snapshot.id, "literature_review_v1",
                provider: Fake,
                provider_opts: [
@@ -95,11 +92,15 @@ defmodule ResearchJobs.Strategy.RunnerTest do
                ]
              )
 
-    assert run.state == :completed
+    assert run.state == :validation_failed
     assert run.formulas == []
     assert run.strategy_specs == []
-    assert Enum.any?(run.validation_result.warnings, &(&1.type == :no_accepted_formulas))
-    assert Enum.any?(run.validation_result.warnings, &(&1.type == :no_accepted_strategy_specs))
+    assert Enum.any?(run.validation_result.fatal_errors, &(&1.type == :no_accepted_formulas))
+
+    assert Enum.any?(
+             run.validation_result.fatal_errors,
+             &(&1.type == :no_accepted_strategy_specs)
+           )
   end
 
   test "marks the run provider_failed when fake provider output fails schema validation" do

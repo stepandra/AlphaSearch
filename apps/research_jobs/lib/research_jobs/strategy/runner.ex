@@ -4,6 +4,7 @@ defmodule ResearchJobs.Strategy.Runner do
   """
 
   alias ResearchCore.Strategy
+  alias ResearchCore.Canonical
   alias ResearchCore.Strategy.{ExtractionRun, FormulaNormalizer}
   alias ResearchJobs.Strategy.Models.{FormulaExtractionBatch, StrategyExtractionBatch}
   alias ResearchJobs.Strategy.ProviderConfig
@@ -178,7 +179,7 @@ defmodule ResearchJobs.Strategy.Runner do
       state: :pending,
       input_package: input_package,
       formula_request_spec: formula_request_spec,
-      provider_name: inspect(opts[:provider]),
+      provider_name: provider_id(opts[:provider]),
       started_at: now
     }
 
@@ -238,4 +239,8 @@ defmodule ResearchJobs.Strategy.Runner do
   defp timestamp do
     DateTime.utc_now() |> DateTime.truncate(:microsecond)
   end
+
+  defp provider_id(value) when is_atom(value), do: Atom.to_string(value)
+  defp provider_id(value) when is_binary(value), do: value
+  defp provider_id(value), do: Canonical.hash(value)
 end

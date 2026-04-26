@@ -7,6 +7,7 @@ defmodule ResearchJobs.Strategy.Providers.Instructor do
 
   alias ResearchJobs.Strategy.Models.{FormulaExtractionBatch, StrategyExtractionBatch}
   alias ResearchJobs.Strategy.{ProviderConfig, ProviderError, ProviderResponse}
+  alias ResearchCore.Canonical
 
   @impl true
   def extract_formulas(request_spec, opts) do
@@ -54,7 +55,7 @@ defmodule ResearchJobs.Strategy.Providers.Instructor do
        request_hash: hash(request_spec),
        response_hash: hash(content),
        metadata: %{
-         adapter: inspect(llm.adapter),
+         adapter: provider_id(llm.adapter),
          mode: Keyword.get(opts, :mode, llm.mode)
        }
      }}
@@ -135,9 +136,7 @@ defmodule ResearchJobs.Strategy.Providers.Instructor do
       },
       %{
         role: "user",
-        content:
-          request_spec[:prompt] ||
-            inspect(request_spec, limit: :infinity, printable_limit: :infinity)
+        content: request_spec[:prompt] || Canonical.encode!(request_spec)
       }
     ]
   end
@@ -152,7 +151,10 @@ defmodule ResearchJobs.Strategy.Providers.Instructor do
   end
 
   defp hash(value) do
-    :crypto.hash(:sha256, inspect(value))
-    |> Base.encode16(case: :lower)
+    Canonical.hash(value)
   end
+
+  defp provider_id(value) when is_atom(value), do: Atom.to_string(value)
+  defp provider_id(value) when is_binary(value), do: value
+  defp provider_id(value), do: Canonical.hash(value)
 end

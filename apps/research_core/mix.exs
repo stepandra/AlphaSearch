@@ -26,6 +26,7 @@ defmodule ResearchCore.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:jason, "~> 1.2"},
       {:stream_data, "~> 1.0", only: :test, runtime: false}
     ]
   end

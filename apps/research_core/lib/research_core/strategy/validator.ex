@@ -7,25 +7,27 @@ defmodule ResearchCore.Strategy.Validator do
 
   @spec validate(list(), list(), [map()], [map()], [map()]) :: ValidationResult.t()
   def validate(formulas, specs, rejected_formulas, rejected_candidates, duplicate_groups) do
+    rejection_issues = Enum.map(rejected_formulas ++ rejected_candidates, &issue(&1))
+    spec_readiness_issues = spec_readiness_issues(specs)
+    empty_result_issues = empty_result_issues(formulas, specs)
+    duplicate_warnings = duplicate_warnings(duplicate_groups)
+
+    fatal_errors =
+      rejection_issues
+      |> Enum.concat(spec_readiness_issues)
+      |> Enum.concat(empty_result_issues)
+      |> Enum.filter(&(&1.severity == :fatal))
+
     warnings =
-      (rejected_formulas ++ rejected_candidates)
-      |> Enum.map(&issue(&1, :warning))
-      |> Kernel.++(
-        Enum.map(duplicate_groups, fn duplicate_group ->
-          %{
-            type: :duplicate_candidate_group,
-            message: "merged duplicate candidates into #{duplicate_group.canonical_candidate_id}",
-            severity: :warning,
-            details: duplicate_group
-          }
-        end)
-      )
-      |> Kernel.++(spec_readiness_warnings(specs))
-      |> Kernel.++(empty_result_warnings(formulas, specs))
+      rejection_issues
+      |> Enum.concat(spec_readiness_issues)
+      |> Enum.concat(empty_result_issues)
+      |> Enum.filter(&(&1.severity != :fatal))
+      |> Enum.concat(duplicate_warnings)
 
     %ValidationResult{
-      valid?: true,
-      fatal_errors: [],
+      valid?: fatal_errors == [],
+      fatal_errors: fatal_errors,
       warnings: warnings,
       rejected_formulas: rejected_formulas,
       rejected_candidates: rejected_candidates,
@@ -36,30 +38,37 @@ defmodule ResearchCore.Strategy.Validator do
     }
   end
 
-  defp issue(rejection, severity) do
-    original_severity = rejection.severity || rejection[:severity]
+  defp issue(rejection) do
+    severity = Map.get(rejection, :severity, :warning)
     details = Map.get(rejection, :details, %{})
 
     %{
-      type: rejection.type || rejection[:type],
-      message: rejection.message || rejection[:message],
+      type: Map.get(rejection, :type),
+      message: Map.get(rejection, :message),
       severity: severity,
-      details:
-        if(original_severity in [nil, severity],
-          do: details,
-          else: Map.put(details, :original_severity, original_severity)
-        )
+      details: details
     }
   end
 
-  defp spec_readiness_warnings(specs) do
+  defp duplicate_warnings(duplicate_groups) do
+    Enum.map(duplicate_groups, fn duplicate_group ->
+      %{
+        type: :duplicate_candidate_group,
+        message: "merged duplicate candidates into #{duplicate_group.canonical_candidate_id}",
+        severity: :warning,
+        details: duplicate_group
+      }
+    end)
+  end
+
+  defp spec_readiness_issues(specs) do
     Enum.flat_map(specs, fn spec ->
       if spec.readiness == :reject do
         [
           %{
             type: :rejected_strategy_spec,
             message: "strategy spec #{spec.id} is marked reject",
-            severity: :warning,
+            severity: :fatal,
             details: %{strategy_spec_id: spec.id}
           }
         ]
@@ -69,29 +78,29 @@ defmodule ResearchCore.Strategy.Validator do
     end)
   end
 
-  defp empty_result_warnings(formulas, specs) do
+  defp empty_result_issues(formulas, specs) do
     []
-    |> maybe_add_empty_warning(
+    |> maybe_add_empty_issue(
       formulas,
       :no_accepted_formulas,
       "strategy extraction accepted no formulas"
     )
-    |> maybe_add_empty_warning(
+    |> maybe_add_empty_issue(
       specs,
       :no_accepted_strategy_specs,
       "strategy extraction accepted no strategy specs"
     )
   end
 
-  defp maybe_add_empty_warning(warnings, values, _type, _message) when values != [], do: warnings
+  defp maybe_add_empty_issue(issues, values, _type, _message) when values != [], do: issues
 
-  defp maybe_add_empty_warning(warnings, _values, type, message) do
-    warnings ++
+  defp maybe_add_empty_issue(issues, _values, type, message) do
+    issues ++
       [
         %{
           type: type,
           message: message,
-          severity: :warning,
+          severity: :fatal,
           details: %{}
         }
       ]

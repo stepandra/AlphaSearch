@@ -4,6 +4,7 @@ defmodule ResearchJobs.Synthesis.Runner do
   """
 
   alias ResearchCore.Synthesis
+  alias ResearchCore.Canonical
   alias ResearchCore.Synthesis.{Artifact, InputBuilder, PromptBuilder, Run, Validator}
   alias ResearchJobs.Synthesis.ProviderConfig
   alias ResearchJobs.Synthesis.ProviderResponse
@@ -129,7 +130,7 @@ defmodule ResearchJobs.Synthesis.Runner do
       state: :pending,
       input_package: package,
       request_spec: request_spec,
-      provider_name: inspect(provider),
+      provider_name: provider_id(provider),
       started_at: now
     }
 
@@ -189,4 +190,8 @@ defmodule ResearchJobs.Synthesis.Runner do
   defp timestamp do
     DateTime.utc_now() |> DateTime.truncate(:microsecond)
   end
+
+  defp provider_id(value) when is_atom(value), do: Atom.to_string(value)
+  defp provider_id(value) when is_binary(value), do: value
+  defp provider_id(value), do: Canonical.hash(value)
 end

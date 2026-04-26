@@ -176,7 +176,7 @@ defmodule ResearchCore.Strategy.FormulaNormalizer do
   defp resolve_precision(
          input_package,
          raw_formula,
-         section_ids,
+         _section_ids,
          formula_text,
          citation_keys,
          exact?,
@@ -184,13 +184,12 @@ defmodule ResearchCore.Strategy.FormulaNormalizer do
          blocked?
        ) do
     exact_matches = exact_formula_matches(input_package, citation_keys, formula_text)
-    exact_in_sections? = exact_formula_in_sections?(input_package, section_ids, formula_text)
 
     cond do
-      exact? and not (exact_in_sections? or exact_matches != []) ->
+      exact? and exact_matches == [] ->
         rejection(
           :non_exact_formula_reference,
-          "exact formulas must appear in cited synthesis sections or match exact reusable formula text from cited records",
+          "exact formulas must match exact reusable formula text from cited records",
           raw_formula,
           :fatal
         )
@@ -198,13 +197,13 @@ defmodule ResearchCore.Strategy.FormulaNormalizer do
       partial? ->
         {:ok, %{exact?: false, partial?: true, blocked?: blocked?}}
 
-      exact? or exact_in_sections? ->
+      exact? ->
         {:ok, %{exact?: true, partial?: false, blocked?: false}}
 
       true ->
         rejection(
           :ambiguous_formula_precision,
-          "formula must either be explicitly partial or appear exactly in the cited synthesis sections",
+          "formula must either be explicitly exact with reusable source formula text or explicitly partial",
           raw_formula,
           :fatal
         )
@@ -343,25 +342,6 @@ defmodule ResearchCore.Strategy.FormulaNormalizer do
         |> Enum.map(fn exact_text -> %{citation_key: citation_key, formula_text: exact_text} end)
       else
         []
-      end
-    end)
-  end
-
-  defp exact_formula_in_sections?(input_package, section_ids, formula_text) do
-    normalized_formula_text = canonical_formula_text(formula_text)
-
-    Enum.any?(section_ids, fn section_id ->
-      case Map.get(input_package.section_lookup, section_id) do
-        nil ->
-          false
-
-        section ->
-          section.body
-          |> canonical_formula_text()
-          |> case do
-            nil -> false
-            body -> String.contains?(body, normalized_formula_text)
-          end
       end
     end)
   end

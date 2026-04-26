@@ -4,6 +4,7 @@ defmodule ResearchCore.Strategy.InputBuilder do
   """
 
   alias ResearchCore.Corpus.{CanonicalRecord, SourceProvenanceSummary}
+  alias ResearchCore.Canonical
   alias ResearchCore.Synthesis
   alias ResearchCore.Strategy.{Helpers, InputPackage, Section}
 
@@ -357,8 +358,6 @@ defmodule ResearchCore.Strategy.InputBuilder do
     package
     |> Map.from_struct()
     |> Map.drop([:digest])
-    |> inspect(limit: :infinity, printable_limit: :infinity)
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.encode16(case: :lower)
+    |> Canonical.hash()
   end
 end

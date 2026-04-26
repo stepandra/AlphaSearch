@@ -3,6 +3,7 @@ defmodule ResearchJobs.Synthesis.Providers.OpenAICompatibleTest do
 
   alias ResearchJobs.Synthesis.{ProviderError, ProviderResponse}
   alias ResearchJobs.Synthesis.Providers.OpenAICompatible
+  alias ResearchCore.Canonical
 
   setup do
     ensure_req_test_ownership_started()
@@ -56,6 +57,47 @@ defmodule ResearchJobs.Synthesis.Providers.OpenAICompatibleTest do
     assert response.content == "## Executive Summary\nNotebook smoke output."
     assert response.metadata.finish_reason == "stop"
     assert response.metadata.usage == %{"total_tokens" => 321}
+    assert response.request_hash == Canonical.hash(%{prompt: "prompt-body"})
+
+    assert response.response_hash ==
+             Canonical.hash("## Executive Summary\nNotebook smoke output.")
+  end
+
+  test "falls back to canonical JSON request content when prompt text is absent" do
+    request_spec = %{phase: :synthesis, payload: %{b: 2, a: 1}}
+
+    Req.Test.expect(request_test_name(), fn conn ->
+      assert %{
+               "messages" => [
+                 %{"role" => "system"},
+                 %{"role" => "user", "content" => content}
+               ]
+             } =
+               Req.Test.raw_body(conn)
+               |> Jason.decode!()
+
+      assert Jason.decode!(content) == Jason.decode!(Canonical.encode!(request_spec))
+
+      Req.Test.json(conn, %{
+        "id" => "chatcmpl_synth_456",
+        "model" => "test-synthesis-model",
+        "choices" => [
+          %{"finish_reason" => "stop", "message" => %{"content" => "## Executive Summary\nOK"}}
+        ]
+      })
+    end)
+
+    assert {:ok, %ProviderResponse{} = response} =
+             OpenAICompatible.synthesize(
+               request_spec,
+               api_key: "synth-key",
+               model: "test-synthesis-model",
+               req: req()
+             )
+
+    Req.Test.verify!()
+
+    assert response.request_hash == Canonical.hash(request_spec)
   end
 
   test "returns explicit provider errors for failed HTTP responses" do

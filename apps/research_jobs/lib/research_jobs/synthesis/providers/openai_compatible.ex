@@ -6,6 +6,7 @@ defmodule ResearchJobs.Synthesis.Providers.OpenAICompatible do
   @behaviour ResearchJobs.Synthesis.Provider
 
   alias ResearchJobs.Synthesis.{ProviderConfig, ProviderError, ProviderResponse}
+  alias ResearchCore.Canonical
 
   @provider_name "openai_compatible"
 
@@ -149,9 +150,7 @@ defmodule ResearchJobs.Synthesis.Providers.OpenAICompatible do
         },
         %{
           role: "user",
-          content:
-            request_spec[:prompt] ||
-              inspect(request_spec, limit: :infinity, printable_limit: :infinity)
+          content: request_spec[:prompt] || Canonical.encode!(request_spec)
         }
       ]
     }
@@ -260,7 +259,6 @@ defmodule ResearchJobs.Synthesis.Providers.OpenAICompatible do
   defp atom_key(_key), do: nil
 
   defp hash(value) do
-    :crypto.hash(:sha256, inspect(value))
-    |> Base.encode16(case: :lower)
+    Canonical.hash(value)
   end
 end
