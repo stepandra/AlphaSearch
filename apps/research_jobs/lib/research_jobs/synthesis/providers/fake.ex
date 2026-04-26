@@ -5,6 +5,7 @@ defmodule ResearchJobs.Synthesis.Providers.Fake do
 
   @behaviour ResearchJobs.Synthesis.Provider
 
+  alias ResearchCore.Canonical
   alias ResearchJobs.Synthesis.{ProviderError, ProviderResponse}
 
   @impl true
@@ -21,7 +22,7 @@ defmodule ResearchJobs.Synthesis.Providers.Fake do
            content: content,
            request_id: Keyword.get(opts, :request_id, "fake-request-id"),
            response_id: Keyword.get(opts, :response_id, "fake-response-id"),
-           request_hash: Keyword.get(opts, :request_hash, hash(request_spec.prompt)),
+           request_hash: Keyword.get(opts, :request_hash, hash(request_spec)),
            response_hash: Keyword.get(opts, :response_hash, hash(content)),
            metadata: Keyword.get(opts, :metadata, %{})
          }}
@@ -37,8 +38,5 @@ defmodule ResearchJobs.Synthesis.Providers.Fake do
     end
   end
 
-  defp hash(value) do
-    :crypto.hash(:sha256, value)
-    |> Base.encode16(case: :lower)
-  end
+  defp hash(value), do: Canonical.hash(value)
 end

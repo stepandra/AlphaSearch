@@ -3,6 +3,7 @@ defmodule ResearchCore.Synthesis.InputBuilder do
   Deterministically packages a finalized snapshot for synthesis.
   """
 
+  alias ResearchCore.Canonical
   alias ResearchCore.Corpus.{CanonicalRecord, QuarantineRecord, SourceProvenanceSummary}
   alias ResearchCore.Synthesis.{CitationKey, InputPackage, Profile}
 
@@ -252,27 +253,6 @@ defmodule ResearchCore.Synthesis.InputBuilder do
   end
 
   defp digest(package) do
-    package
-    |> normalize_for_hash()
-    |> inspect(limit: :infinity, printable_limit: :infinity)
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.encode16(case: :lower)
+    Canonical.hash(package)
   end
-
-  defp normalize_for_hash(%_{} = value) do
-    value
-    |> Map.from_struct()
-    |> normalize_for_hash()
-  end
-
-  defp normalize_for_hash(value) when is_map(value) do
-    value
-    |> Enum.map(fn {key, entry} -> {normalize_for_hash(key), normalize_for_hash(entry)} end)
-    |> Enum.sort()
-  end
-
-  defp normalize_for_hash(value) when is_list(value), do: Enum.map(value, &normalize_for_hash/1)
-  defp normalize_for_hash(value) when is_atom(value), do: Atom.to_string(value)
-  defp normalize_for_hash(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp normalize_for_hash(value), do: value
 end

@@ -9,6 +9,7 @@ defmodule ResearchCore.Synthesis.InputBuilderTest do
     SourceProvenanceSummary
   }
 
+  alias ResearchCore.Canonical
   alias ResearchCore.Synthesis.{InputBuilder, InputPackage}
 
   test "builds a deterministic package with stable citation keys and provenance references" do
@@ -29,6 +30,7 @@ defmodule ResearchCore.Synthesis.InputBuilderTest do
              )
 
     assert package_one.digest == package_two.digest
+    assert package_one.digest == Canonical.hash(%{package_one | digest: "pending"})
     assert Enum.map(package_one.citation_keys, & &1.key) == ["REC_0001", "REC_0002", "REC_0003"]
     assert Enum.map(package_one.accepted_core, & &1.citation_key) == ["REC_0001"]
     assert Enum.map(package_one.accepted_analog, & &1.citation_key) == ["REC_0002"]
